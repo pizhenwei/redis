@@ -410,6 +410,9 @@ proc start_server {options {code undefined}} {
     set data [split [exec cat "tests/assets/$baseconfig"] "\n"]
     set config {}
     if {$::tls} {
+        if {$::tls_ext} {
+            dict set config "tls-load-extension" [format "%s/src/redis-tls.so" [pwd]]
+        }
         dict set config "tls-cert-file" [format "%s/tests/tls/server.crt" [pwd]]
         dict set config "tls-key-file" [format "%s/tests/tls/server.key" [pwd]]
         dict set config "tls-client-cert-file" [format "%s/tests/tls/client.crt" [pwd]]

@@ -9,7 +9,11 @@ Getting Started
 To build with TLS support you'll need OpenSSL development libraries (e.g.
 libssl-dev on Debian/Ubuntu).
 
+To build TLS support as Redis built-in:
 Run `make BUILD_TLS=yes`.
+
+Or to build TLS as an extension shared library:
+Run `make BUILD_TLS=ext`.
 
 ### Tests
 
@@ -22,15 +26,28 @@ To run Redis test suite with TLS, you'll need TLS support for TCL (i.e.
 2. Run `./runtest --tls` or `./runtest-cluster --tls` to run Redis and Redis
    Cluster tests in TLS mode.
 
+3. Run `./runtest --tls --tls-ext` or `./runtest-cluster --tls --tls-ext` to
+   run Redis and Redis Cluster tests in TLS mode with extension library.
+
 ### Running manually
 
 To manually run a Redis server with TLS mode (assuming `gen-test-certs.sh` was
 invoked so sample certificates/keys are available):
 
+For TLS built-in mode:
+
     ./src/redis-server --tls-port 6379 --port 0 \
         --tls-cert-file ./tests/tls/redis.crt \
         --tls-key-file ./tests/tls/redis.key \
         --tls-ca-cert-file ./tests/tls/ca.crt
+
+For TLS extension mode:
+
+    ./src/redis-server --tls-port 6379 --port 0 \
+        --tls-cert-file ./tests/tls/redis.crt \
+        --tls-key-file ./tests/tls/redis.key \
+        --tls-ca-cert-file ./tests/tls/ca.crt \
+        --tls-load-extension src/redis-tls.so
 
 To connect to this Redis server with `redis-cli`:
 

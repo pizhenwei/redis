@@ -32,6 +32,8 @@
 #include "anet.h"
 #include "cluster.h"
 
+#include <dlfcn.h>
+
 /* The connections module provides a lean abstraction of network connections
  * to avoid direct socket and async event management across the Redis code base.
  *
@@ -747,11 +749,43 @@ int connTypeRegister(ConnectionType *ct) {
     return C_OK;
 }
 
+static void *connTypeLoadExtension(char *path, char *onload) {
+    void *onload_handler = NULL;
+    void *handle;
+
+    handle = dlopen(path, RTLD_NOW | RTLD_LOCAL);
+    if (handle == NULL) {
+        serverLog(LL_WARNING, "Failed to load connection extension (%s): %s", path, dlerror());
+        exit(1);
+    }
+
+    onload_handler = dlsym(handle, onload);
+    if (onload_handler == NULL) {
+        dlclose(handle);
+        serverLog(LL_WARNING, "Failed to lookup symbol %s in %s", onload, path);
+        exit(1);
+    }
+
+    return onload_handler;
+}
+
 int connTypeInitialize() {
+    /* may unused, avoid building warning */
+    UNUSED(connTypeLoadExtension);
+
     /* currently socket connection type is necessary  */
     serverAssert(connTypeRegister(&CT_Socket) == C_OK);
 
+#ifdef USE_TLS_EXT
+    int (*registerTLS)(void);
+
+    if (server.tls_load_extension) {
+        registerTLS = (int (*)(void))(unsigned long)connTypeLoadExtension(server.tls_load_extension, "RedisRegisterConnectionTypeTLS");
+        registerTLS();
+    }
+#else
     RedisRegisterConnectionTypeTLS();
+#endif
 
     return C_OK;
 }

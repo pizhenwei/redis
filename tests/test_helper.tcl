@@ -95,6 +95,7 @@ set ::traceleaks 0
 set ::valgrind 0
 set ::durable 0
 set ::tls 0
+set ::tls_ext 0
 set ::stack_logging 0
 set ::verbose 0
 set ::quiet 0
@@ -582,6 +583,7 @@ proc print_help_screen {} {
         "--wait-server      Wait after server is started (so that you can attach a debugger)."
         "--dump-logs        Dump server log on test failure."
         "--tls              Run tests in TLS mode."
+        "--tls-ext          Run tests in TLS mode with extension library."
         "--host <addr>      Run tests against an external host."
         "--port <port>      TCP port to use against external host."
         "--baseport <port>  Initial port number for spawned redis servers."
@@ -636,6 +638,8 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
             -cafile "$::tlsdir/ca.crt" \
             -certfile "$::tlsdir/client.crt" \
             -keyfile "$::tlsdir/client.key"
+    }  elseif {$opt eq {--tls-ext}} {
+        set ::tls_ext 1
     } elseif {$opt eq {--host}} {
         set ::external 1
         set ::host $arg

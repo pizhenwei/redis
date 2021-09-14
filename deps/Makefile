@@ -42,7 +42,7 @@ distclean:
 
 .PHONY: distclean
 
-ifeq ($(BUILD_TLS),yes)
+ifneq (,$(filter $(BUILD_TLS),yes ext))
     HIREDIS_MAKE_FLAGS = USE_SSL=1
 endif
 

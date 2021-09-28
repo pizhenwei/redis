@@ -3813,14 +3813,14 @@ void initServer(void) {
 
     /* Create an event handler for accepting new connections in TCP and Unix
      * domain sockets. */
-    if (createSocketAcceptHandler(&server.ipfd, acceptTcpHandler) != C_OK) {
+    if (createSocketAcceptHandler(&server.ipfd, connectionByType(CONN_TYPE_SOCKET)->accept_handler) != C_OK) {
         serverPanic("Unrecoverable error creating TCP socket accept handler.");
     }
-    if (createSocketAcceptHandler(&server.tlsfd, acceptTLSHandler) != C_OK) {
+    if (server.tlsfd.count && createSocketAcceptHandler(&server.tlsfd, connectionByType(CONN_TYPE_TLS)->accept_handler) != C_OK) {
         serverPanic("Unrecoverable error creating TLS socket accept handler.");
     }
     if (server.sofd > 0 && aeCreateFileEvent(server.el,server.sofd,AE_READABLE,
-        acceptUnixHandler,NULL) == AE_ERR) serverPanic("Unrecoverable error creating server.sofd file event.");
+        connectionByType(CONN_TYPE_SOCKET)->accept_handler,NULL) == AE_ERR) serverPanic("Unrecoverable error creating server.sofd file event.");
 
 
     /* Register a readable event for the pipe used to awake the event loop
@@ -6481,10 +6481,10 @@ int changeBindAddr(sds *addrlist, int addrlist_len) {
     }
 
     /* Create TCP and TLS event handlers */
-    if (createSocketAcceptHandler(&server.ipfd, acceptTcpHandler) != C_OK) {
+    if (createSocketAcceptHandler(&server.ipfd, connectionByType(CONN_TYPE_SOCKET)->accept_handler) != C_OK) {
         serverPanic("Unrecoverable error creating TCP socket accept handler.");
     }
-    if (createSocketAcceptHandler(&server.tlsfd, acceptTLSHandler) != C_OK) {
+    if (server.tlsfd.count && createSocketAcceptHandler(&server.tlsfd, connectionByType(CONN_TYPE_TLS)->accept_handler) != C_OK) {
         serverPanic("Unrecoverable error creating TLS socket accept handler.");
     }
 

@@ -68,5 +68,6 @@ int anetFdToString(int fd, char *ip, size_t ip_len, int *port, int fd_to_str_typ
 int anetKeepAlive(char *err, int fd, int interval);
 int anetPipe(int fds[2], int read_flags, int write_flags);
 int anetGetError(int fd);
+int anetFdGetAddrFamily(int fd);
 
 #endif

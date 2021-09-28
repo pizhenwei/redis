@@ -670,3 +670,14 @@ error:
     close(fds[1]);
     return -1;
 }
+
+int anetFdGetAddrFamily(int fd) {
+    struct sockaddr_storage sa;
+    socklen_t salen = sizeof(sa);
+
+    if (getsockname(fd, (struct sockaddr *)&sa, &salen) == -1) {
+        return -1;
+    }
+
+    return sa.ss_family;
+}

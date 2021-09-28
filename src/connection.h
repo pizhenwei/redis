@@ -1,4 +1,3 @@
-
 /*
  * Copyright (c) 2019, Redis Labs
  * All rights reserved.
@@ -69,8 +68,9 @@ typedef struct ConnectionType {
     void (*cleanup)(void);
     int (*configure)(void *priv);
 
-    /* ae & error & address handler */
+    /* ae & accept & error & address handler */
     void (*ae_handler)(struct aeEventLoop *el, int fd, void *clientData, int mask);
+    void (*accept_handler)(struct aeEventLoop *el, int fd, void *privdata, int mask);
     const char *(*get_last_error)(struct connection *conn);
     int (*addr)(connection *conn, char *ip, size_t ip_len, int *port, int addr_type);
 
@@ -266,6 +266,9 @@ static inline int connFormatAddr(char *buf, size_t buf_len, char *ip, int port) 
     return snprintf(buf,buf_len, strchr(ip,':') ?
            "[%s]:%d" : "%s:%d", ip, port);
 }
+
+#define MAX_ACCEPTS_PER_CALL 1000
+void acceptCommonHandler(connection *conn, int flags, char *ip);
 
 /* common connection type abstruct */
 int connTypeInitialize();

@@ -2374,7 +2374,7 @@ static int updatePort(long long val, long long prev, const char **err) {
         return 1;
     }
 
-    if (changeListenPort(val, &server.ipfd, acceptTcpHandler) == C_ERR) {
+    if (changeListenPort(val, &server.ipfd, connectionByType(CONN_TYPE_SOCKET)->accept_handler) == C_ERR) {
         *err = "Unable to listen on this port. Check server logs.";
         return 0;
     }
@@ -2532,7 +2532,7 @@ static int updateTLSPort(long long val, long long prev, const char **err) {
         return 0;
     }
 
-    if (changeListenPort(val, &server.tlsfd, acceptTLSHandler) == C_ERR) {
+    if (changeListenPort(val, &server.tlsfd, connectionByType(CONN_TYPE_TLS)->accept_handler) == C_ERR) {
         *err = "Unable to listen on this port. Check server logs.";
         return 0;
     }

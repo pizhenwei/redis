@@ -51,7 +51,8 @@ typedef enum {
 
 #define CONN_TYPE_SOCKET            0
 #define CONN_TYPE_TLS               1
-#define CONN_TYPE_MAX               2
+#define CONN_TYPE_RDMA              2
+#define CONN_TYPE_MAX               3
 
 /* address string conversion types */
 #define ADDR_PEER_NAME 0
@@ -292,6 +293,7 @@ connection *connCreateAccepted(int type, int fd, void *priv);
 int connTypeHasPendingData(void);
 int connTypeProcessPendingData(void);
 int RedisRegisterConnectionTypeTLS(void);
+int RedisRegisterConnectionTypeRDMA(void);
 int connTypeOfCluster();
 int connTypeOfReplication();
 

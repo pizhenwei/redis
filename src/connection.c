@@ -787,6 +787,17 @@ int connTypeInitialize() {
     RedisRegisterConnectionTypeTLS();
 #endif
 
+#ifdef USE_RDMA_EXT
+    int (*registerRDMA)(void);
+
+    if (server.rdma_load_extension) {
+        registerRDMA = (int (*)(void))(unsigned long)connTypeLoadExtension(server.rdma_load_extension, "RedisRegisterConnectionTypeRDMA");
+        registerRDMA();
+    }
+#else
+    RedisRegisterConnectionTypeRDMA();
+#endif
+
     return C_OK;
 }
 
@@ -912,8 +923,13 @@ int connTypeOfCluster() {
 }
 
 int connTypeOfReplication() {
+    /* secure connection type has first priority */
     if (server.tls_replication) {
         return CONN_TYPE_TLS;
+    }
+
+    if (server.rdma_replication) {
+        return CONN_TYPE_RDMA;
     }
 
     return CONN_TYPE_SOCKET;

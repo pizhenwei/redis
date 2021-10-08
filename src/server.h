@@ -119,7 +119,6 @@ typedef long long ustime_t; /* microsecond time type. */
 #define NET_IP_STR_LEN 46 /* INET6_ADDRSTRLEN is 46, but we need to be sure */
 #define NET_ADDR_STR_LEN (NET_IP_STR_LEN+32) /* Must be enough for ip:port */
 #define NET_HOST_PORT_STR_LEN (NET_HOST_STR_LEN+32) /* Must be enough for hostname:port */
-#define CONFIG_BINDADDR_MAX 16
 #define CONFIG_MIN_RESERVED_FDS 32
 #define CONFIG_DEFAULT_PROC_TITLE_TEMPLATE "{title} {listen-addr} {server-mode}"
 
@@ -1711,6 +1710,15 @@ struct redisServer {
                                 * failover then any replica can be used. */
     int target_replica_port; /* Failover target port */
     int failover_state; /* Failover state */
+    /* RDMA config */
+    char *rdma_load_extension; /* RDMA loadable extension path */
+    char *rdma_bindaddr[CONFIG_BINDADDR_MAX]; /* RMDA addresses we should bind to */
+    int rdma_bindaddr_count;         /* Number of addresses in server.rdma_bindaddr[] */
+    int rdma_port;              /* RDMA listening port */
+    socketFds rdmafd;           /* RDMA CM file descriptors */
+    int rdma_replication;       /* RDMA replication */
+    int rdma_cluster;           /* RDMA cluster */
+
 };
 
 #define MAX_KEYS_BUFFER 256

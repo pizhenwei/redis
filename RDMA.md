@@ -145,8 +145,6 @@ There is no POLLOUT event of RDMA comp channel:
 
 To-Do List
 ----------
-- [ ] rdma basic logic of redis server
 - [ ] rdma client & benchmark
-- [ ] rdma-cluster is to be implemented
 - [ ] POLLOUT event emulation for hiredis
 - [ ] auto-test suite is not implemented currently

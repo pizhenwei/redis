@@ -3671,8 +3671,14 @@ void initServer(void) {
         anetCloexec(server.sofd);
     }
 
+    if (server.rdma_port != 0 &&
+        connTypeListenToPort(CONN_TYPE_RDMA, server.rdma_port, &server.rdmafd) == C_ERR) {
+        serverLog(LL_WARNING, "Failed listening on port %u (RDMA): %s, aborting.", server.rdma_port, server.neterr);
+        exit(1);
+    }
+
     /* Abort if there are no listening sockets at all. */
-    if (server.ipfd.count == 0 && server.tlsfd.count == 0 && server.sofd < 0) {
+    if (server.ipfd.count == 0 && server.tlsfd.count == 0 && server.sofd < 0 && server.rdmafd.count == 0) {
         serverLog(LL_WARNING, "Configured to not listen anywhere, exiting.");
         exit(1);
     }
@@ -3762,6 +3768,9 @@ void initServer(void) {
     }
     if (server.sofd > 0 && aeCreateFileEvent(server.el,server.sofd,AE_READABLE,
         connectionByType(CONN_TYPE_SOCKET)->accept_handler,NULL) == AE_ERR) serverPanic("Unrecoverable error creating server.sofd file event.");
+    if (server.rdmafd.count && createSocketAcceptHandler(&server.rdmafd, connectionByType(CONN_TYPE_RDMA)->accept_handler) != C_OK) {
+        serverPanic("Unrecoverable error creating RDMA accept handler.");
+    }
 
 
     /* Register a readable event for the pipe used to awake the event loop

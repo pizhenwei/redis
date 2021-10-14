@@ -52,10 +52,8 @@
 #define REDIS_TLS_PROTO_DEFAULT     (REDIS_TLS_PROTO_TLSv1_2)
 #endif
 
-extern ConnectionType CT_Socket;
-
-SSL_CTX *redis_tls_ctx = NULL;
-SSL_CTX *redis_tls_client_ctx = NULL;
+static SSL_CTX *redis_tls_ctx = NULL;
+static SSL_CTX *redis_tls_client_ctx = NULL;
 
 static int parseProtocolsConfig(const char *str) {
     int i, count = 0;
@@ -137,7 +135,7 @@ static void initCryptoLocks(void) {
 }
 #endif /* USE_CRYPTO_LOCKS */
 
-void tlsInit(void) {
+static void tlsInit(void) {
     /* Enable configuring OpenSSL using the standard openssl.cnf
      * OPENSSL_config()/OPENSSL_init_crypto() should be the first 
      * call to the OpenSSL* library.
@@ -279,7 +277,8 @@ error:
 /* Attempt to configure/reconfigure TLS. This operation is atomic and will
  * leave the SSL_CTX unchanged if fails.
  */
-int tlsConfigure(redisTLSContextConfig *ctx_config) {
+static int tlsConfigure(void *priv) {
+    redisTLSContextConfig *ctx_config = (redisTLSContextConfig *)priv;
     char errbuf[256];
     SSL_CTX *ctx = NULL;
     SSL_CTX *client_ctx = NULL;
@@ -379,7 +378,7 @@ error:
 #define TLSCONN_DEBUG(fmt, ...)
 #endif
 
-ConnectionType CT_TLS;
+static ConnectionType CT_TLS;
 
 /* Normal socket connections have a simple events/handler correlation.
  *
@@ -424,7 +423,7 @@ static connection *createTLSConnection(int client_side) {
     return (connection *) conn;
 }
 
-connection *connCreateTLS(void) {
+static connection *connCreateTLS(void) {
     return createTLSConnection(1);
 }
 
@@ -445,7 +444,8 @@ static void updateTLSError(tls_connection *conn) {
  * Callers should use connGetState() and verify the created connection
  * is not in an error state.
  */
-connection *connCreateAcceptedTLS(int fd, int require_auth) {
+static connection *connCreateAcceptedTLS(int fd, void *priv) {
+    int require_auth = *(int *)priv;
     tls_connection *conn = (tls_connection *) createTLSConnection(0);
     conn->c.fd = fd;
     conn->c.state = CONN_STATE_ACCEPTING;
@@ -508,7 +508,7 @@ static int handleSSLReturnCode(tls_connection *conn, int ret_value, WantIOType *
     return 0;
 }
 
-void registerSSLEvent(tls_connection *conn, WantIOType want) {
+static void registerSSLEvent(tls_connection *conn, WantIOType want) {
     int mask = aeGetFileEvents(server.el, conn->c.fd);
 
     switch (want) {
@@ -528,7 +528,7 @@ void registerSSLEvent(tls_connection *conn, WantIOType want) {
     }
 }
 
-void updateSSLEvent(tls_connection *conn) {
+static void updateSSLEvent(tls_connection *conn) {
     int mask = aeGetFileEvents(server.el, conn->c.fd);
     int need_read = conn->c.read_handler || (conn->flags & TLS_CONN_FLAG_WRITE_WANT_READ);
     int need_write = conn->c.write_handler || (conn->flags & TLS_CONN_FLAG_READ_WANT_WRITE);
@@ -555,7 +555,7 @@ static void tlsHandleEvent(tls_connection *conn, int mask) {
 
     switch (conn->c.state) {
         case CONN_STATE_CONNECTING:
-            conn_error = connGetSocketError((connection *) conn);
+            conn_error = anetGetError(conn->c.fd);
             if (conn_error) {
                 conn->c.last_errno = conn_error;
                 conn->c.state = CONN_STATE_ERROR;
@@ -696,7 +696,7 @@ static void connTLSClose(connection *conn_) {
         conn->pending_list_node = NULL;
     }
 
-    CT_Socket.close(conn_);
+    connectionByType(CONN_TYPE_SOCKET)->close(conn_);
 }
 
 static int connTLSAccept(connection *_conn, ConnectionCallbackFunc accept_handler) {
@@ -735,7 +735,7 @@ static int connTLSConnect(connection *conn_, const char *addr, int port, const c
     ERR_clear_error();
 
     /* Initiate Socket connection first */
-    if (CT_Socket.connect(conn_, addr, port, src_addr, connect_handler) == C_ERR) return C_ERR;
+    if (connectionByType(CONN_TYPE_SOCKET)->connect(conn_, addr, port, src_addr, connect_handler) == C_ERR) return C_ERR;
 
     /* Return now, once the socket is connected we'll initiate
      * TLS connection from the event handler.
@@ -811,7 +811,7 @@ static const char *connTLSGetLastError(connection *conn_) {
     return NULL;
 }
 
-int connTLSSetWriteHandler(connection *conn, ConnectionCallbackFunc func, int barrier) {
+static int connTLSSetWriteHandler(connection *conn, ConnectionCallbackFunc func, int barrier) {
     conn->write_handler = func;
     if (barrier)
         conn->flags |= CONN_FLAG_WRITE_BARRIER;
@@ -821,7 +821,7 @@ int connTLSSetWriteHandler(connection *conn, ConnectionCallbackFunc func, int ba
     return C_OK;
 }
 
-int connTLSSetReadHandler(connection *conn, ConnectionCallbackFunc func) {
+static int connTLSSetReadHandler(connection *conn, ConnectionCallbackFunc func) {
     conn->read_handler = func;
     updateSSLEvent((tls_connection *) conn);
     return C_OK;
@@ -846,7 +846,7 @@ static int connTLSBlockingConnect(connection *conn_, const char *addr, int port,
     if (conn->c.state != CONN_STATE_NONE) return C_ERR;
 
     /* Initiate socket blocking connect first */
-    if (CT_Socket.blocking_connect(conn_, addr, port, timeout) == C_ERR) return C_ERR;
+    if (connectionByType(CONN_TYPE_SOCKET)->blocking_connect(conn_, addr, port, timeout) == C_ERR) return C_ERR;
 
     /* Initiate TLS connection now.  We set up a send/recv timeout on the socket,
      * which means the specified timeout will not be enforced accurately. */
@@ -921,30 +921,21 @@ static int connTLSGetType(connection *conn_) {
     return CONN_TYPE_TLS;
 }
 
-ConnectionType CT_TLS = {
-    .ae_handler = tlsEventHandler,
-    .accept = connTLSAccept,
-    .connect = connTLSConnect,
-    .blocking_connect = connTLSBlockingConnect,
-    .read = connTLSRead,
-    .write = connTLSWrite,
-    .close = connTLSClose,
-    .set_write_handler = connTLSSetWriteHandler,
-    .set_read_handler = connTLSSetReadHandler,
-    .get_last_error = connTLSGetLastError,
-    .sync_write = connTLSSyncWrite,
-    .sync_read = connTLSSyncRead,
-    .sync_readline = connTLSSyncReadLine,
-    .get_type = connTLSGetType
-};
+static void *tlsGetCtx(void) {
+    return redis_tls_ctx;
+}
 
-int tlsHasPendingData() {
+static void *tlsGetClientCtx(void) {
+    return redis_tls_client_ctx;
+}
+
+static int tlsHasPendingData() {
     if (!pending_list)
         return 0;
     return listLength(pending_list) > 0;
 }
 
-int tlsProcessPendingData() {
+static int tlsProcessPendingData() {
     listIter li;
     listNode *ln;
 
@@ -960,7 +951,7 @@ int tlsProcessPendingData() {
 /* Fetch the peer certificate used for authentication on the specified
  * connection and return it as a PEM-encoded sds.
  */
-sds connTLSGetPeerCert(connection *conn_) {
+static sds connTLSGetPeerCert(connection *conn_) {
     tls_connection *conn = (tls_connection *) conn_;
     if (conn_->type->get_type(conn_) != CONN_TYPE_TLS || !conn->ssl) return NULL;
 
@@ -981,41 +972,59 @@ sds connTLSGetPeerCert(connection *conn_) {
     return cert_pem;
 }
 
-#else   /* USE_OPENSSL */
-
-void tlsInit(void) {
+static int connTLSAddr(connection *conn, char *ip, size_t ip_len, int *port, int fd_to_str_type) {
+    return anetFdToString(conn->fd, ip, ip_len, port, fd_to_str_type);
 }
 
-void tlsCleanup(void) {
-}
+static ConnectionType CT_TLS = {
+    /* connection type */
+    .get_type = connTLSGetType,
 
-int tlsConfigure(redisTLSContextConfig *ctx_config) {
-    UNUSED(ctx_config);
+    /* connection type initialize & finalize & configure */
+    .init = tlsInit,
+    .cleanup = tlsCleanup,
+    .configure = tlsConfigure,
+
+    /* ae & error & address handler */
+    .ae_handler = tlsEventHandler,
+    .get_last_error = connTLSGetLastError,
+    .addr = connTLSAddr,
+
+    /* create/close connection */
+    .conn_create = connCreateTLS,
+    .conn_create_accepted = connCreateAcceptedTLS,
+    .close = connTLSClose,
+
+    /* connect & accept */
+    .connect = connTLSConnect,
+    .blocking_connect = connTLSBlockingConnect,
+    .accept = connTLSAccept,
+
+    /* IO */
+    .set_write_handler = connTLSSetWriteHandler,
+    .set_read_handler = connTLSSetReadHandler,
+    .write = connTLSWrite,
+    .read = connTLSRead,
+    .sync_write = connTLSSyncWrite,
+    .sync_read = connTLSSyncRead,
+    .sync_readline = connTLSSyncReadLine,
+    .has_pending_data = tlsHasPendingData,
+    .process_pending_data = tlsProcessPendingData,
+
+    /* TLS specified methods */
+    .get_peer_cert = connTLSGetPeerCert,
+    .get_ctx = tlsGetCtx,
+    .get_client_ctx = tlsGetClientCtx
+};
+
+int RedisRegisterConnectionTypeTLS(void) {
+    serverAssert(connTypeRegister(&CT_TLS) == C_OK);
+
     return C_OK;
 }
 
-connection *connCreateTLS(void) { 
-    return NULL;
+#else
+int RedisRegisterConnectionTypeTLS(void) {
+    return C_ERR;
 }
-
-connection *connCreateAcceptedTLS(int fd, int require_auth) {
-    UNUSED(fd);
-    UNUSED(require_auth);
-
-    return NULL;
-}
-
-int tlsHasPendingData() {
-    return 0;
-}
-
-int tlsProcessPendingData() {
-    return 0;
-}
-
-sds connTLSGetPeerCert(connection *conn_) {
-    (void) conn_;
-    return NULL;
-}
-
 #endif

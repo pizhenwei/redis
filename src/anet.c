@@ -48,6 +48,8 @@
 
 #include "anet.h"
 #include "config.h"
+#include "sds.h"
+#include "connection.h"
 
 static void anetSetError(char *err, const char *fmt, ...)
 {
@@ -57,6 +59,15 @@ static void anetSetError(char *err, const char *fmt, ...)
     va_start(ap, fmt);
     vsnprintf(err, ANET_ERR_LEN, fmt, ap);
     va_end(ap);
+}
+
+int anetGetError(int fd) {
+    int sockerr = 0;
+    socklen_t errlen = sizeof(sockerr);
+
+    if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &sockerr, &errlen) == -1)
+        sockerr = errno;
+    return sockerr;
 }
 
 int anetSetBlock(char *err, int fd, int non_block) {
@@ -560,7 +571,7 @@ int anetFdToString(int fd, char *ip, size_t ip_len, int *port, int fd_to_str_typ
     struct sockaddr_storage sa;
     socklen_t salen = sizeof(sa);
 
-    if (fd_to_str_type == FD_TO_PEER_NAME) {
+    if (fd_to_str_type == ADDR_PEER_NAME) {
         if (getpeername(fd, (struct sockaddr *)&sa, &salen) == -1) goto error;
     } else {
         if (getsockname(fd, (struct sockaddr *)&sa, &salen) == -1) goto error;
@@ -602,23 +613,6 @@ error:
     }
     if (port) *port = 0;
     return -1;
-}
-
-/* Format an IP,port pair into something easy to parse. If IP is IPv6
- * (matches for ":"), the ip is surrounded by []. IP and port are just
- * separated by colons. This the standard to display addresses within Redis. */
-int anetFormatAddr(char *buf, size_t buf_len, char *ip, int port) {
-    return snprintf(buf,buf_len, strchr(ip,':') ?
-           "[%s]:%d" : "%s:%d", ip, port);
-}
-
-/* Like anetFormatAddr() but extract ip and port from the socket's peer/sockname. */
-int anetFormatFdAddr(int fd, char *buf, size_t buf_len, int fd_to_str_type) {
-    char ip[INET6_ADDRSTRLEN];
-    int port;
-
-    anetFdToString(fd,ip,sizeof(ip),&port,fd_to_str_type);
-    return anetFormatAddr(buf, buf_len, ip, port);
 }
 
 /* Create a pipe buffer with given flags for read end and write end.

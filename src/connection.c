@@ -49,7 +49,7 @@
  *    depending on the implementation (for TCP they are; for TLS they aren't).
  */
 
-ConnectionType CT_Socket;
+static ConnectionType CT_Socket;
 
 /* When a connection is created we must know its type already, but the
  * underlying socket may or may not exist:
@@ -74,7 +74,7 @@ ConnectionType CT_Socket;
  * be embedded in different structs, not just client.
  */
 
-connection *connCreateSocket() {
+static connection *connCreateSocket() {
     connection *conn = zcalloc(sizeof(connection));
     conn->type = &CT_Socket;
     conn->fd = -1;
@@ -92,7 +92,8 @@ connection *connCreateSocket() {
  * is not in an error state (which is not possible for a socket connection,
  * but could but possible with other protocols).
  */
-connection *connCreateAcceptedSocket(int fd) {
+static connection *connCreateAcceptedSocket(int fd, void *priv) {
+    UNUSED(priv);
     connection *conn = connCreateSocket();
     conn->fd = fd;
     conn->state = CONN_STATE_ACCEPTING;
@@ -260,7 +261,7 @@ static void connSocketEventHandler(struct aeEventLoop *el, int fd, void *clientD
     if (conn->state == CONN_STATE_CONNECTING &&
             (mask & AE_WRITABLE) && conn->conn_handler) {
 
-        int conn_error = connGetSocketError(conn);
+        int conn_error = anetGetError(conn->fd);
         if (conn_error) {
             conn->last_errno = conn_error;
             conn->state = CONN_STATE_ERROR;
@@ -345,44 +346,51 @@ static int connSocketGetType(connection *conn) {
     return CONN_TYPE_SOCKET;
 }
 
-ConnectionType CT_Socket = {
+static int connSocketAddr(connection *conn, char *ip, size_t ip_len, int *port, int addr_type) {
+    return anetFdToString(conn->fd, ip, ip_len, port, addr_type);
+}
+
+/* the member fields of a static variable can be initialized as zero implicitly, but we still declare them as NULL to make code easy to maintain. */
+static ConnectionType CT_Socket = {
+    /* connection type */
+    .get_type = connSocketGetType,
+
+    /* connection type initialize & finalize & configure */
+    .init = NULL,
+    .cleanup = NULL,
+    .configure = NULL,
+
+    /* ae & error & address handler */
     .ae_handler = connSocketEventHandler,
+    .get_last_error = connSocketGetLastError,
+    .addr = connSocketAddr,
+
+    /* create/close connection */
+    .conn_create = connCreateSocket,
+    .conn_create_accepted = connCreateAcceptedSocket,
     .close = connSocketClose,
-    .write = connSocketWrite,
-    .read = connSocketRead,
-    .accept = connSocketAccept,
+
+    /* connect & accept */
     .connect = connSocketConnect,
+    .blocking_connect = connSocketBlockingConnect,
+    .accept = connSocketAccept,
+
+    /* IO */
     .set_write_handler = connSocketSetWriteHandler,
     .set_read_handler = connSocketSetReadHandler,
-    .get_last_error = connSocketGetLastError,
-    .blocking_connect = connSocketBlockingConnect,
+    .write = connSocketWrite,
+    .read = connSocketRead,
     .sync_write = connSocketSyncWrite,
     .sync_read = connSocketSyncRead,
     .sync_readline = connSocketSyncReadLine,
-    .get_type = connSocketGetType
+    .has_pending_data = NULL,
+    .process_pending_data = NULL,
+
+    /* TLS specified methods */
+    .get_peer_cert = NULL,
+    .get_ctx = NULL,
+    .get_client_ctx = NULL
 };
-
-
-int connGetSocketError(connection *conn) {
-    int sockerr = 0;
-    socklen_t errlen = sizeof(sockerr);
-
-    if (getsockopt(conn->fd, SOL_SOCKET, SO_ERROR, &sockerr, &errlen) == -1)
-        sockerr = errno;
-    return sockerr;
-}
-
-int connPeerToString(connection *conn, char *ip, size_t ip_len, int *port) {
-    return anetFdToString(conn ? conn->fd : -1, ip, ip_len, port, FD_TO_PEER_NAME);
-}
-
-int connSockName(connection *conn, char *ip, size_t ip_len, int *port) {
-    return anetFdToString(conn->fd, ip, ip_len, port, FD_TO_SOCK_NAME);
-}
-
-int connFormatFdAddr(connection *conn, char *buf, size_t buf_len, int fd_to_str_type) {
-    return anetFormatFdAddr(conn ? conn->fd : -1, buf, buf_len, fd_to_str_type);
-}
 
 int connBlock(connection *conn) {
     if (conn->fd == -1) return C_ERR;
@@ -431,3 +439,166 @@ const char *connGetInfo(connection *conn, char *buf, size_t buf_len) {
     return buf;
 }
 
+int connFormatConnAddr(connection *conn, char *buf, size_t buf_len, int addr_type) {
+    char ip[INET6_ADDRSTRLEN];
+    int port;
+
+    if (connAddr(conn, ip, sizeof(ip), &port, addr_type) < 0)
+        return -1;
+
+    return connFormatAddr(buf, buf_len, ip, port);
+}
+
+/* fully abstract connection type */
+static ConnectionType *connTypes[CONN_TYPE_MAX];
+
+int connTypeRegister(ConnectionType *ct) {
+    int type = ct->get_type(NULL);
+
+    /* unknown connection type as a fatal error */
+    if (type >= CONN_TYPE_MAX) {
+        serverPanic("Unsupported connection type %d", type);
+    }
+
+    if (connTypes[type] == ct) {
+        serverLog(LL_WARNING, "Connection type %d already registered", type);
+        return C_OK;
+    }
+
+    serverLog(LL_VERBOSE, "Connection type %d registered", type);
+    connTypes[type] = ct;
+
+    if (ct->init) {
+        ct->init();
+    }
+
+    return C_OK;
+}
+
+int connTypeInitialize() {
+    /* currently socket connection type is necessary  */
+    serverAssert(connTypeRegister(&CT_Socket) == C_OK);
+
+    RedisRegisterConnectionTypeTLS();
+
+    return C_OK;
+}
+
+ConnectionType *connectionByType(int type) {
+    ConnectionType *ct;
+
+    if (type >= CONN_TYPE_MAX) {
+        serverLog(LL_WARNING, "Unsupported connection type %d", type);
+        exit(1);
+    }
+
+    ct = connTypes[type];
+    if (!ct) {
+        serverLog(LL_WARNING, "Missing implement of connection type %d", type);
+        exit(1);
+    }
+
+    return ct;
+}
+
+void connTypeCleanup(int type) {
+    ConnectionType *ct = connectionByType(type);
+
+    if (ct && ct->cleanup) {
+        ct->cleanup();
+    }
+}
+
+int connTypeConfigure(int type, void *priv) {
+    ConnectionType *ct = connectionByType(type);
+
+    if (ct && ct->configure) {
+        return ct->configure(priv);
+    }
+
+    return C_OK;
+}
+
+void *connTypeGetCtx(int type) {
+    ConnectionType *ct = connectionByType(type);
+
+    if (ct && ct->get_ctx) {
+        return ct->get_ctx();
+    }
+
+    return NULL;
+}
+
+void *connTypeGetClientCtx(int type) {
+    ConnectionType *ct = connectionByType(type);
+
+    if (ct && ct->get_client_ctx) {
+        return ct->get_client_ctx();
+    }
+
+    return NULL;
+}
+
+/* walk all the connection types until has pending data */
+int connTypeHasPendingData(void) {
+    ConnectionType *ct;
+    int type;
+    int ret = 0;
+
+    for (type = 0; type < CONN_TYPE_MAX; type++) {
+        ct = connTypes[type];
+        if (ct && ct->has_pending_data && (ret = ct->has_pending_data())) {
+            return ret;
+        }
+    }
+
+    return ret;
+}
+
+/* walk all the connection types and process pending data for each connection type */
+int connTypeProcessPendingData(void) {
+    ConnectionType *ct;
+    int type;
+    int ret = 0;
+
+    for (type = 0; type < CONN_TYPE_MAX; type++) {
+        ct = connTypes[type];
+        if (ct && ct->process_pending_data) {
+            ret += ct->process_pending_data();
+        }
+    }
+
+    return ret;
+}
+
+connection *connCreate(int type) {
+    ConnectionType *ct = connectionByType(type);
+
+    serverAssert(ct && ct->conn_create);
+
+    return ct->conn_create();
+}
+
+connection *connCreateAccepted(int type, int fd, void *priv) {
+    ConnectionType *ct = connectionByType(type);
+
+    serverAssert(ct && ct->conn_create_accepted);
+
+    return ct->conn_create_accepted(fd, priv);
+}
+
+int connTypeOfCluster() {
+    if (server.tls_cluster) {
+        return CONN_TYPE_TLS;
+    }
+
+    return CONN_TYPE_SOCKET;
+}
+
+int connTypeOfReplication() {
+    if (server.tls_replication) {
+        return CONN_TYPE_TLS;
+    }
+
+    return CONN_TYPE_SOCKET;
+}

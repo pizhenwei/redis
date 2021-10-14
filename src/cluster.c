@@ -721,6 +721,7 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     int cport, cfd;
     int max = MAX_CLUSTER_ACCEPTS_PER_CALL;
     char cip[NET_IP_STR_LEN];
+    int require_auth = TLS_CLIENT_AUTH_YES;
     UNUSED(el);
     UNUSED(mask);
     UNUSED(privdata);
@@ -738,9 +739,7 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
             return;
         }
 
-        connection *conn = server.tls_cluster ?
-            connCreateAcceptedTLS(cfd, TLS_CLIENT_AUTH_YES) : connCreateAcceptedSocket(cfd);
-
+        connection *conn = connCreateAccepted(connTypeOfCluster(), cfd, &require_auth);
         /* Make sure connection is not in an error state */
         if (connGetState(conn) != CONN_STATE_ACCEPTING) {
             serverLog(LL_VERBOSE,
@@ -1592,7 +1591,7 @@ void nodeIp2String(char *buf, clusterLink *link, char *announced_ip) {
         memcpy(buf,announced_ip,NET_IP_STR_LEN);
         buf[NET_IP_STR_LEN-1] = '\0'; /* We are not sure the input is sane. */
     } else {
-        connPeerToString(link->conn, buf, NET_IP_STR_LEN, NULL);
+        connAddrPeerName(link->conn, buf, NET_IP_STR_LEN, NULL);
     }
 }
 
@@ -1919,7 +1918,7 @@ int clusterProcessPacket(clusterLink *link) {
         {
             char ip[NET_IP_STR_LEN];
 
-            if (connSockName(link->conn,ip,sizeof(ip),NULL) != -1 &&
+            if (connAddrSockName(link->conn,ip,sizeof(ip),NULL) != -1 &&
                 strcmp(ip,myself->ip))
             {
                 memcpy(myself->ip,ip,NET_IP_STR_LEN);
@@ -3559,7 +3558,7 @@ int clusterNodeCronHandleReconnect(clusterNode *node, mstime_t handshake_timeout
 
     if (node->link == NULL) {
         clusterLink *link = createClusterLink(node);
-        link->conn = server.tls_cluster ? connCreateTLS() : connCreateSocket();
+        link->conn = connCreate(connTypeOfCluster());
         connSetPrivateData(link->conn, link);
         if (connConnect(link->conn, node->ip, node->cport, server.bind_source_addr,
                     clusterLinkConnectHandler) == -1) {
@@ -5358,7 +5357,7 @@ migrateCachedSocket* migrateGetSocket(client *c, robj *host, robj *port, long ti
     }
 
     /* Create the socket */
-    conn = server.tls_cluster ? connCreateTLS() : connCreateSocket();
+    conn = connCreate(connTypeOfCluster());
     if (connBlockingConnect(conn, c->argv[1]->ptr, atoi(c->argv[2]->ptr), timeout)
             != C_OK) {
         addReplyError(c,"-IOERR error or timeout connecting to the client");

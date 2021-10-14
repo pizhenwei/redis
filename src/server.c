@@ -2866,7 +2866,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     if (ProcessingEventsWhileBlocked) {
         uint64_t processed = 0;
         processed += handleClientsWithPendingReadsUsingThreads();
-        processed += tlsProcessPendingData();
+        processed += connTypeProcessPendingData();
         processed += handleClientsWithPendingWrites();
         processed += freeClientsInAsyncFreeQueue();
         server.events_processed_while_blocked += processed;
@@ -2880,10 +2880,10 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     handleClientsWithPendingReadsUsingThreads();
 
     /* Handle TLS pending data. (must be done before flushAppendOnlyFile) */
-    tlsProcessPendingData();
+    connTypeProcessPendingData();
 
     /* If tls still has pending unread data don't sleep at all. */
-    aeSetDontWait(server.el, tlsHasPendingData());
+    aeSetDontWait(server.el, connTypeHasPendingData());
 
     /* Call the Redis Cluster before sleep function. Note that this function
      * may change the state of Redis Cluster (from ok to fail or vice versa),
@@ -3640,6 +3640,7 @@ void initServer(void) {
     signal(SIGPIPE, SIG_IGN);
     setupSignalHandlers();
     makeThreadKillable();
+    connTypeInitialize();
 
     if (server.syslog_enabled) {
         openlog(server.syslog_ident, LOG_PID | LOG_NDELAY | LOG_NOWAIT,
@@ -3681,7 +3682,7 @@ void initServer(void) {
     server.thp_enabled = 0;
 
     if ((server.tls_port || server.tls_replication || server.tls_cluster)
-                && tlsConfigure(&server.tls_ctx_config) == C_ERR) {
+         && connTypeConfigure(CONN_TYPE_TLS, &server.tls_ctx_config) == C_ERR) {
         serverLog(LL_WARNING, "Failed to configure TLS. Check logs for more info.");
         exit(1);
     }
@@ -5954,7 +5955,7 @@ sds genRedisInfoString(const char *section) {
                 long lag = 0;
 
                 if (!slaveip) {
-                    if (connPeerToString(slave->conn,ip,sizeof(ip),&port) == -1)
+                    if (connAddrPeerName(slave->conn,ip,sizeof(ip),&port) == -1)
                         continue;
                     slaveip = ip;
                 }
@@ -7119,7 +7120,6 @@ int main(int argc, char **argv) {
     ACLInit(); /* The ACL subsystem must be initialized ASAP because the
                   basic networking code and client creation depends on it. */
     moduleInitModulesSystem();
-    tlsInit();
 
     /* Store the executable path and arguments in a safe place in order
      * to be able to restart the server later. */

@@ -44,10 +44,6 @@
 
 extern char **environ;
 
-#ifdef USE_OPENSSL
-extern SSL_CTX *redis_tls_ctx;
-extern SSL_CTX *redis_tls_client_ctx;
-#endif
 
 #define REDIS_SENTINEL_PORT 26379
 
@@ -875,7 +871,8 @@ void sentinelRunPendingScripts(void) {
             sj->pid = 0;
         } else if (pid == 0) {
             /* Child */
-            tlsCleanup();
+            if (server.tls_replication)
+                connTypeCleanup(CONN_TYPE_TLS);
             execve(sj->argv[0],sj->argv,environ);
             /* If we are here an error occurred. */
             _exit(2); /* Don't retry execution. */
@@ -2388,6 +2385,9 @@ static int instanceLinkNegotiateTLS(redisAsyncContext *context) {
 #ifndef USE_OPENSSL
     (void) context;
 #else
+    SSL_CTX *redis_tls_ctx = connTypeGetCtx(CONN_TYPE_TLS);
+    SSL_CTX *redis_tls_client_ctx = connTypeGetClientCtx(CONN_TYPE_TLS);
+
     if (!redis_tls_ctx) return C_ERR;
     SSL *ssl = SSL_new(redis_tls_client_ctx ? redis_tls_client_ctx : redis_tls_ctx);
     if (!ssl) return C_ERR;
@@ -2993,7 +2993,7 @@ int sentinelSendHello(sentinelRedisInstance *ri) {
     if (sentinel.announce_ip) {
         announce_ip = sentinel.announce_ip;
     } else {
-        if (anetFdToString(ri->link->cc->c.fd,ip,sizeof(ip),NULL,FD_TO_SOCK_NAME) == -1)
+        if (anetFdToString(ri->link->cc->c.fd,ip,sizeof(ip),NULL,ADDR_SOCK_NAME) == -1)
             return C_ERR;
         announce_ip = ip;
     }

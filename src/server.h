@@ -2961,11 +2961,6 @@ void makeThreadKillable(void);
         _serverLog(level, __VA_ARGS__);\
     } while(0)
 
-/* TLS stuff */
-void tlsInit(void);
-void tlsCleanup(void);
-int tlsConfigure(redisTLSContextConfig *ctx_config);
-
 #define redisDebug(fmt, ...) \
     printf("DEBUG %s:%d > " fmt "\n", __FILE__, __LINE__, __VA_ARGS__)
 #define redisDebugMark() \

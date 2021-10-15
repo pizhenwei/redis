@@ -309,6 +309,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
 clusterNode *clusterLookupNode(const char *name);
 int clusterRedirectBlockedClientIfNeeded(client *c);
 void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_code);
+void clusterConnAcceptHandler(connection *conn);
 void migrateCloseTimedoutSockets(void);
 int verifyClusterConfigWithData(void);
 unsigned long getClusterConnectionsCount(void);

@@ -698,6 +698,14 @@ static void tlsAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) 
     }
 }
 
+static void tlsClusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
+    connectionByType(CONN_TYPE_SOCKET)->cluster_accept_handler(el, fd, privdata, mask);
+}
+
+static int tlsListenToPort(int port, socketFds *sfd) {
+    return connectionByType(CONN_TYPE_SOCKET)->listen_to_port(port, sfd);
+}
+
 static void connTLSClose(connection *conn_) {
     tls_connection *conn = (tls_connection *) conn_;
 
@@ -1008,6 +1016,8 @@ static ConnectionType CT_TLS = {
     /* ae & accept & error & address handler */
     .ae_handler = tlsEventHandler,
     .accept_handler = tlsAcceptHandler,
+    .cluster_accept_handler = tlsClusterAcceptHandler,
+    .listen_to_port = tlsListenToPort,
     .get_last_error = connTLSGetLastError,
     .addr = connTLSAddr,
 

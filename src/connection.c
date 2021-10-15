@@ -280,6 +280,57 @@ static void connSocketAcceptHandler(aeEventLoop *el, int fd, void *privdata, int
     }
 }
 
+static void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
+    int cport, cfd;
+    int max = MAX_ACCEPTS_PER_CALL;
+    char cip[NET_IP_STR_LEN];
+    int require_auth = TLS_CLIENT_AUTH_YES;
+    UNUSED(el);
+    UNUSED(mask);
+    UNUSED(privdata);
+
+    /* If the server is starting up, don't accept cluster connections:
+     * UPDATE messages may interact with the database content. */
+    if (server.masterhost == NULL && server.loading) return;
+
+    while(max--) {
+        cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
+        if (cfd == ANET_ERR) {
+            if (errno != EWOULDBLOCK)
+                serverLog(LL_VERBOSE,
+                    "Error accepting cluster node: %s", server.neterr);
+            return;
+        }
+
+        connection *conn = connCreateAccepted(connTypeOfCluster(), cfd, &require_auth);
+        /* Make sure connection is not in an error state */
+        if (connGetState(conn) != CONN_STATE_ACCEPTING) {
+            serverLog(LL_VERBOSE,
+                "Error creating an accepting connection for cluster node: %s",
+                    connGetLastError(conn));
+            connClose(conn);
+            return;
+        }
+        connEnableTcpNoDelay(conn);
+        connKeepAlive(conn,server.cluster_node_timeout * 2);
+
+        /* Use non-blocking I/O for cluster messages. */
+        serverLog(LL_VERBOSE,"Accepting cluster node connection from %s:%d", cip, cport);
+
+        /* Accept the connection now.  connAccept() may call our handler directly
+         * or schedule it for later depending on connection implementation.
+         */
+        if (connAccept(conn, clusterConnAcceptHandler) == C_ERR) {
+            if (connGetState(conn) == CONN_STATE_ERROR)
+                serverLog(LL_VERBOSE,
+                        "Error accepting cluster node connection: %s",
+                        connGetLastError(conn));
+            connClose(conn);
+            return;
+        }
+    }
+}
+
 static void connSocketEventHandler(struct aeEventLoop *el, int fd, void *clientData, int mask)
 {
     UNUSED(el);
@@ -378,6 +429,65 @@ static int connSocketAddr(connection *conn, char *ip, size_t ip_len, int *port, 
     return anetFdToString(conn->fd, ip, ip_len, port, addr_type);
 }
 
+/* Initialize a set of file descriptors to listen to the specified 'port'
+ * binding the addresses specified in the Redis server configuration.
+ *
+ * The listening file descriptors are stored in the integer array 'fds'
+ * and their number is set in '*count'.
+ *
+ * The addresses to bind are specified in the global server.bindaddr array
+ * and their number is server.bindaddr_count. If the server configuration
+ * contains no specific addresses to bind, this function will try to
+ * bind * (all addresses) for both the IPv4 and IPv6 protocols.
+ *
+ * On success the function returns C_OK.
+ *
+ * On error the function returns C_ERR. For the function to be on
+ * error, at least one of the server.bindaddr addresses was
+ * impossible to bind, or no bind addresses were specified in the server
+ * configuration but the function is not able to bind * for at least
+ * one of the IPv4 or IPv6 protocols. */
+static int connSocketListenToPort(int port, socketFds *sfd) {
+    int j;
+    char **bindaddr = server.bindaddr;
+
+    /* If we have no bind address, we don't listen on a TCP socket */
+    if (server.bindaddr_count == 0) return C_OK;
+
+    for (j = 0; j < server.bindaddr_count; j++) {
+        char* addr = bindaddr[j];
+        int optional = *addr == '-';
+        if (optional) addr++;
+        if (strchr(addr,':')) {
+            /* Bind IPv6 address. */
+            sfd->fd[sfd->count] = anetTcp6Server(server.neterr,port,addr,server.tcp_backlog);
+        } else {
+            /* Bind IPv4 address. */
+            sfd->fd[sfd->count] = anetTcpServer(server.neterr,port,addr,server.tcp_backlog);
+        }
+        if (sfd->fd[sfd->count] == ANET_ERR) {
+            int net_errno = errno;
+            serverLog(LL_WARNING,
+                "Warning: Could not create server TCP listening socket %s:%d: %s",
+                addr, port, server.neterr);
+            if (net_errno == EADDRNOTAVAIL && optional)
+                continue;
+            if (net_errno == ENOPROTOOPT     || net_errno == EPROTONOSUPPORT ||
+                net_errno == ESOCKTNOSUPPORT || net_errno == EPFNOSUPPORT ||
+                net_errno == EAFNOSUPPORT)
+                continue;
+
+            /* Rollback successful listens before exiting */
+            closeSocketListeners(sfd);
+            return C_ERR;
+        }
+        anetNonBlock(NULL,sfd->fd[sfd->count]);
+        anetCloexec(sfd->fd[sfd->count]);
+        sfd->count++;
+    }
+    return C_OK;
+}
+
 /* the member fields of a static variable can be initialized as zero implicitly, but we still declare them as NULL to make code easy to maintain. */
 static ConnectionType CT_Socket = {
     /* connection type */
@@ -391,6 +501,8 @@ static ConnectionType CT_Socket = {
     /* ae & accept & error & address handler */
     .ae_handler = connSocketEventHandler,
     .accept_handler = connSocketAcceptHandler,
+    .cluster_accept_handler = clusterAcceptHandler,
+    .listen_to_port = connSocketListenToPort,
     .get_last_error = connSocketGetLastError,
     .addr = connSocketAddr,
 
@@ -677,6 +789,16 @@ int connTypeConfigure(int type, void *priv) {
     }
 
     return C_OK;
+}
+
+int connTypeListenToPort(int type, int port, socketFds *sfd) {
+    ConnectionType *ct = connectionByType(type);
+
+    if (ct && ct->listen_to_port) {
+        return ct->listen_to_port(port, sfd);
+    }
+
+    return C_ERR;
 }
 
 void *connTypeGetCtx(int type) {

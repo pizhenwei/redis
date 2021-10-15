@@ -57,6 +57,12 @@ typedef enum {
 #define ADDR_PEER_NAME 0
 #define ADDR_SOCK_NAME 1
 
+#define CONFIG_BINDADDR_MAX 16
+typedef struct socketFds {
+    int fd[CONFIG_BINDADDR_MAX];
+    int count;
+} socketFds;
+
 typedef void (*ConnectionCallbackFunc)(struct connection *conn);
 
 typedef struct ConnectionType {
@@ -68,9 +74,11 @@ typedef struct ConnectionType {
     void (*cleanup)(void);
     int (*configure)(void *priv);
 
-    /* ae & accept & error & address handler */
+    /* ae & accept & listen & error & address handler */
     void (*ae_handler)(struct aeEventLoop *el, int fd, void *clientData, int mask);
     void (*accept_handler)(struct aeEventLoop *el, int fd, void *privdata, int mask);
+    void (*cluster_accept_handler)(struct aeEventLoop *el, int fd, void *privdata, int mask);
+    int (*listen_to_port)(int port, socketFds *sfd);
     const char *(*get_last_error)(struct connection *conn);
     int (*addr)(connection *conn, char *ip, size_t ip_len, int *port, int addr_type);
 
@@ -275,6 +283,7 @@ int connTypeInitialize();
 int connTypeRegister(ConnectionType *ct);
 ConnectionType *connectionByType(int type);
 int connTypeConfigure(int type, void *priv);
+int connTypeListenToPort(int type, int port, socketFds *sfd);
 void connTypeCleanup(int type);
 void *connTypeGetCtx(int type);
 void *connTypeGetClientCtx(int type);

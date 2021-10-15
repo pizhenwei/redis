@@ -3514,65 +3514,6 @@ int createSocketAcceptHandler(socketFds *sfd, aeFileProc *accept_handler) {
     return C_OK;
 }
 
-/* Initialize a set of file descriptors to listen to the specified 'port'
- * binding the addresses specified in the Redis server configuration.
- *
- * The listening file descriptors are stored in the integer array 'fds'
- * and their number is set in '*count'.
- *
- * The addresses to bind are specified in the global server.bindaddr array
- * and their number is server.bindaddr_count. If the server configuration
- * contains no specific addresses to bind, this function will try to
- * bind * (all addresses) for both the IPv4 and IPv6 protocols.
- *
- * On success the function returns C_OK.
- *
- * On error the function returns C_ERR. For the function to be on
- * error, at least one of the server.bindaddr addresses was
- * impossible to bind, or no bind addresses were specified in the server
- * configuration but the function is not able to bind * for at least
- * one of the IPv4 or IPv6 protocols. */
-int listenToPort(int port, socketFds *sfd) {
-    int j;
-    char **bindaddr = server.bindaddr;
-
-    /* If we have no bind address, we don't listen on a TCP socket */
-    if (server.bindaddr_count == 0) return C_OK;
-
-    for (j = 0; j < server.bindaddr_count; j++) {
-        char* addr = bindaddr[j];
-        int optional = *addr == '-';
-        if (optional) addr++;
-        if (strchr(addr,':')) {
-            /* Bind IPv6 address. */
-            sfd->fd[sfd->count] = anetTcp6Server(server.neterr,port,addr,server.tcp_backlog);
-        } else {
-            /* Bind IPv4 address. */
-            sfd->fd[sfd->count] = anetTcpServer(server.neterr,port,addr,server.tcp_backlog);
-        }
-        if (sfd->fd[sfd->count] == ANET_ERR) {
-            int net_errno = errno;
-            serverLog(LL_WARNING,
-                "Warning: Could not create server TCP listening socket %s:%d: %s",
-                addr, port, server.neterr);
-            if (net_errno == EADDRNOTAVAIL && optional)
-                continue;
-            if (net_errno == ENOPROTOOPT     || net_errno == EPROTONOSUPPORT ||
-                net_errno == ESOCKTNOSUPPORT || net_errno == EPFNOSUPPORT ||
-                net_errno == EAFNOSUPPORT)
-                continue;
-
-            /* Rollback successful listens before exiting */
-            closeSocketListeners(sfd);
-            return C_ERR;
-        }
-        anetNonBlock(NULL,sfd->fd[sfd->count]);
-        anetCloexec(sfd->fd[sfd->count]);
-        sfd->count++;
-    }
-    return C_OK;
-}
-
 /* Resets the stats that we expose via INFO or other means that we want
  * to reset via CONFIG RESETSTAT. The function is also used in order to
  * initialize these fields in initServer() at server startup. */
@@ -3707,12 +3648,12 @@ void initServer(void) {
 
     /* Open the TCP listening socket for the user commands. */
     if (server.port != 0 &&
-        listenToPort(server.port,&server.ipfd) == C_ERR) {
+        connTypeListenToPort(CONN_TYPE_SOCKET, server.port,&server.ipfd) == C_ERR) {
         serverLog(LL_WARNING, "Failed listening on port %u (TCP), aborting.", server.port);
         exit(1);
     }
     if (server.tls_port != 0 &&
-        listenToPort(server.tls_port,&server.tlsfd) == C_ERR) {
+        connTypeListenToPort(CONN_TYPE_TLS, server.tls_port,&server.tlsfd) == C_ERR) {
         serverLog(LL_WARNING, "Failed listening on port %u (TLS), aborting.", server.tls_port);
         exit(1);
     }
@@ -6450,8 +6391,8 @@ int changeBindAddr(sds *addrlist, int addrlist_len) {
     server.bindaddr_count = addrlist_len;
 
     /* Bind to the new port */
-    if ((server.port != 0 && listenToPort(server.port, &server.ipfd) != C_OK) ||
-        (server.tls_port != 0 && listenToPort(server.tls_port, &server.tlsfd) != C_OK)) {
+    if ((server.port != 0 && connTypeListenToPort(CONN_TYPE_SOCKET, server.port, &server.ipfd) != C_OK) ||
+        (server.tls_port != 0 && connTypeListenToPort(CONN_TYPE_TLS, server.tls_port, &server.tlsfd) != C_OK)) {
         serverLog(LL_WARNING, "Failed to bind, trying to restore old listening sockets.");
 
         /* Restore old bind addresses */
@@ -6463,12 +6404,12 @@ int changeBindAddr(sds *addrlist, int addrlist_len) {
 
         /* Re-Listen TCP and TLS */
         server.ipfd.count = 0;
-        if (server.port != 0 && listenToPort(server.port, &server.ipfd) != C_OK) {
+        if (server.port != 0 && connTypeListenToPort(CONN_TYPE_SOCKET, server.port, &server.ipfd) != C_OK) {
             serverPanic("Failed to restore old listening TCP socket.");
         }
 
         server.tlsfd.count = 0;
-        if (server.tls_port != 0 && listenToPort(server.tls_port, &server.tlsfd) != C_OK) {
+        if (server.tls_port != 0 && connTypeListenToPort(CONN_TYPE_TLS, server.tls_port, &server.tlsfd) != C_OK) {
             serverPanic("Failed to restore old listening TLS socket.");
         }
 
@@ -6504,7 +6445,7 @@ int changeListenPort(int port, socketFds *sfd, aeFileProc *accept_handler) {
     }
 
     /* Bind to the new port */
-    if (listenToPort(port, &new_sfd) != C_OK) {
+    if (connTypeListenToPort(CONN_TYPE_SOCKET, port, &new_sfd) != C_OK) {
         return C_ERR;
     }
 

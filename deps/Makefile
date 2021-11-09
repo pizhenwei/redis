@@ -43,7 +43,11 @@ distclean:
 .PHONY: distclean
 
 ifneq (,$(filter $(BUILD_TLS),yes ext))
-    HIREDIS_MAKE_FLAGS = USE_SSL=1
+    HIREDIS_MAKE_FLAGS += USE_SSL=1
+endif
+
+ifneq (,$(filter $(BUILD_RDMA),yes ext))
+    HIREDIS_MAKE_FLAGS += USE_RDMA=1
 endif
 
 hiredis: .make-prerequisites

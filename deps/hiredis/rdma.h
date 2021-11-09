@@ -1,9 +1,6 @@
 /* Extracted from anet.c to work properly with Hiredis error reporting.
  *
- * Copyright (c) 2009-2011, Salvatore Sanfilippo <antirez at gmail dot com>
- * Copyright (c) 2010-2014, Pieter Noordhuis <pcnoordhuis at gmail dot com>
- * Copyright (c) 2015, Matt Stancliff <matt at genges dot com>,
- *                     Jan-Erik Rediger <janerik at fnordig dot com>
+ * Copyright (c) 2021 zhenwei pi
  *
  * All rights reserved.
  *
@@ -32,27 +29,11 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef __NET_H
-#define __NET_H
+#ifndef __RDMA_H
+#define __RDMA_H
 
 #include "hiredis.h"
 
-void redisNetClose(redisContext *c);
-ssize_t redisNetRead(redisContext *c, char *buf, size_t bufcap);
-ssize_t redisNetWrite(redisContext *c);
-
-int redisCheckSocketError(redisContext *c);
-int redisContextSetTimeout(redisContext *c, const struct timeval tv);
-int redisContextConnectTcp(redisContext *c, const char *addr, int port, const struct timeval *timeout);
-int redisContextConnectBindTcp(redisContext *c, const char *addr, int port,
-                               const struct timeval *timeout,
-                               const char *source_addr);
-int redisContextConnectUnix(redisContext *c, const char *path, const struct timeval *timeout);
-int redisKeepAlive(redisContext *c, int interval);
-int redisCheckConnectDone(redisContext *c, int *completed);
-
-int redisSetTcpNoDelay(redisContext *c);
-int redisContextTimeoutMsec(redisContext *c, long *result);
-int redisSetFdBlocking(redisContext *c, redisFD fd, int blocking);
+int redisContextConnectRdma(redisContext *c, const char *addr, int port, const struct timeval *timeout);
 
 #endif

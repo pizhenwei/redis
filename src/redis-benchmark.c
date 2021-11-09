@@ -83,6 +83,7 @@ static struct config {
     aeEventLoop *el;
     cliConnInfo conn_info;
     const char *hostsocket;
+    int rdma;
     int tls;
     struct cliSSLconfig sslconfig;
     int numclients;
@@ -413,7 +414,10 @@ static void resetClient(client c) {
     aeEventLoop *el = CLIENT_GET_EVENTLOOP(c);
     aeDeleteFileEvent(el,c->context->fd,AE_WRITABLE);
     aeDeleteFileEvent(el,c->context->fd,AE_READABLE);
-    aeCreateFileEvent(el,c->context->fd,AE_WRITABLE,writeHandler,c);
+    if (config.rdma)
+        writeHandler(el,c->context->fd,c,0);
+    else
+        aeCreateFileEvent(el,c->context->fd,AE_WRITABLE,writeHandler,c);
     c->written = 0;
     c->pending = config.pipeline;
 }
@@ -687,7 +691,10 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
             port = node->port;
             c->cluster_node = node;
         }
-        c->context = redisConnectNonBlock(ip,port);
+        if (config.rdma)
+            c->context = redisConnectRdma(ip,port);
+        else
+            c->context = redisConnectNonBlock(ip,port);
     } else {
         c->context = redisConnectUnixNonBlock(config.hostsocket);
     }
@@ -831,8 +838,12 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
         benchmarkThread *thread = config.threads[thread_id];
         el = thread->el;
     }
-    if (config.idlemode == 0)
-        aeCreateFileEvent(el,c->context->fd,AE_WRITABLE,writeHandler,c);
+    if (config.idlemode == 0) {
+        if (config.rdma)
+            writeHandler(el,c->context->fd,c,0);
+        else
+            aeCreateFileEvent(el,c->context->fd,AE_WRITABLE,writeHandler,c);
+    }
     listAddNodeTail(config.clients,c);
     atomicIncr(config.liveclients, 1);
     atomicGet(config.slots_last_update, c->slots_last_update);
@@ -1537,6 +1548,10 @@ int parseOptions(int argc, char **argv) {
             config.sslconfig.ciphersuites = strdup(argv[++i]);
         #endif
         #endif
+        #ifdef USE_RDMA
+        } else if (!strcmp(argv[i],"--rdma")) {
+            config.rdma = 1;
+        #endif
         } else {
             /* Assume the user meant to provide an option when the arg starts
              * with a dash. We're done otherwise and should use the remainder
@@ -1613,6 +1628,9 @@ usage:
 "                    See the ciphers(1ssl) manpage for more information about the syntax of this string,\n"
 "                    and specifically for TLSv1.3 ciphersuites.\n"
 #endif
+#endif
+#ifdef USE_RDMA
+" --rdma             Establish a RDMA connection.\n"
 #endif
 " --help             Output this help and exit.\n"
 " --version          Output version and exit.\n\n",

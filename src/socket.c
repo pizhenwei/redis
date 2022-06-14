@@ -348,6 +348,11 @@ ConnectionType CT_Socket = {
     /* connection type */
     .get_type = connSocketGetType,
 
+    /* connection type initialize & finalize & configure */
+    .init = NULL,
+    .cleanup = NULL,
+    .configure = NULL,
+
     /* ae & accept & listen & error & address handler */
     .ae_handler = connSocketEventHandler,
     .addr = connSocketAddr,
@@ -405,3 +410,7 @@ int connRecvTimeout(connection *conn, long long ms) {
     return anetRecvTimeout(NULL, conn->fd, ms);
 }
 
+int RedisRegisterConnectionTypeSocket()
+{
+    return connTypeRegister(&CT_Socket);
+}

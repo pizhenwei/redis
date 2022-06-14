@@ -1019,13 +1019,13 @@ static int connTLSGetType(connection *conn_) {
     return CONN_TYPE_TLS;
 }
 
-int tlsHasPendingData() {
+static int tlsHasPendingData() {
     if (!pending_list)
         return 0;
     return listLength(pending_list) > 0;
 }
 
-int tlsProcessPendingData() {
+static int tlsProcessPendingData() {
     listIter li;
     listNode *ln;
 
@@ -1093,6 +1093,10 @@ ConnectionType CT_TLS = {
     .sync_write = connTLSSyncWrite,
     .sync_read = connTLSSyncRead,
     .sync_readline = connTLSSyncReadLine,
+
+    /* pending data */
+    .has_pending_data = tlsHasPendingData,
+    .process_pending_data = tlsProcessPendingData,
 };
 
 int RedisRegisterConnectionTypeTLS()
@@ -1116,14 +1120,6 @@ connection *connCreateAcceptedTLS(int fd, int require_auth) {
     UNUSED(require_auth);
 
     return NULL;
-}
-
-int tlsHasPendingData() {
-    return 0;
-}
-
-int tlsProcessPendingData() {
-    return 0;
 }
 
 sds connTLSGetPeerCert(connection *conn_) {

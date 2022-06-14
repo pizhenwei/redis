@@ -58,8 +58,8 @@
 
 extern ConnectionType CT_Socket;
 
-SSL_CTX *redis_tls_ctx = NULL;
-SSL_CTX *redis_tls_client_ctx = NULL;
+static SSL_CTX *redis_tls_ctx = NULL;
+static SSL_CTX *redis_tls_client_ctx = NULL;
 
 static int parseProtocolsConfig(const char *str) {
     int i, count = 0;
@@ -1041,7 +1041,7 @@ static int tlsProcessPendingData() {
 /* Fetch the peer certificate used for authentication on the specified
  * connection and return it as a PEM-encoded sds.
  */
-sds connTLSGetPeerCert(connection *conn_) {
+static sds connTLSGetPeerCert(connection *conn_) {
     tls_connection *conn = (tls_connection *) conn_;
     if (conn_->type->get_type(conn_) != CONN_TYPE_TLS || !conn->ssl) return NULL;
 
@@ -1060,6 +1060,14 @@ sds connTLSGetPeerCert(connection *conn_) {
     BIO_free(bio);
 
     return cert_pem;
+}
+
+static void *tlsGetCtx(void) {
+    return redis_tls_ctx;
+}
+
+static void *tlsGetClientCtx(void) {
+    return redis_tls_client_ctx;
 }
 
 ConnectionType CT_TLS = {
@@ -1097,6 +1105,11 @@ ConnectionType CT_TLS = {
     /* pending data */
     .has_pending_data = tlsHasPendingData,
     .process_pending_data = tlsProcessPendingData,
+
+    /* TLS specified methods */
+    .get_peer_cert = connTLSGetPeerCert,
+    .get_ctx = tlsGetCtx,
+    .get_client_ctx = tlsGetClientCtx
 };
 
 int RedisRegisterConnectionTypeTLS()
@@ -1119,11 +1132,6 @@ connection *connCreateAcceptedTLS(int fd, int require_auth) {
     UNUSED(fd);
     UNUSED(require_auth);
 
-    return NULL;
-}
-
-sds connTLSGetPeerCert(connection *conn_) {
-    (void) conn_;
     return NULL;
 }
 

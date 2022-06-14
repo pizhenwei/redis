@@ -300,6 +300,10 @@ static void connSocketEventHandler(struct aeEventLoop *el, int fd, void *clientD
     }
 }
 
+static int connSocketAddr(connection *conn, char *ip, size_t ip_len, int *port, int remote) {
+    return anetFdToString(conn->fd, ip, ip_len, port, remote);
+}
+
 static int connSocketBlockingConnect(connection *conn, const char *addr, int port, long long timeout) {
     int fd = anetTcpNonBlockConnect(NULL,addr,port);
     if (fd == -1) {
@@ -346,6 +350,7 @@ ConnectionType CT_Socket = {
 
     /* ae & accept & listen & error & address handler */
     .ae_handler = connSocketEventHandler,
+    .addr = connSocketAddr,
 
     /* create/close connection */
     .close = connSocketClose,
@@ -366,18 +371,6 @@ ConnectionType CT_Socket = {
     .sync_read = connSocketSyncRead,
     .sync_readline = connSocketSyncReadLine,
 };
-
-int connPeerToString(connection *conn, char *ip, size_t ip_len, int *port) {
-    return anetFdToString(conn ? conn->fd : -1, ip, ip_len, port, FD_TO_PEER_NAME);
-}
-
-int connSockName(connection *conn, char *ip, size_t ip_len, int *port) {
-    return anetFdToString(conn->fd, ip, ip_len, port, FD_TO_SOCK_NAME);
-}
-
-int connFormatFdAddr(connection *conn, char *buf, size_t buf_len, int fd_to_str_type) {
-    return anetFormatFdAddr(conn ? conn->fd : -1, buf, buf_len, fd_to_str_type);
-}
 
 int connBlock(connection *conn) {
     if (conn->fd == -1) return C_ERR;

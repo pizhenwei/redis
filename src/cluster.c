@@ -1748,7 +1748,7 @@ void nodeIp2String(char *buf, clusterLink *link, char *announced_ip) {
         memcpy(buf,announced_ip,NET_IP_STR_LEN);
         buf[NET_IP_STR_LEN-1] = '\0'; /* We are not sure the input is sane. */
     } else {
-        connPeerToString(link->conn, buf, NET_IP_STR_LEN, NULL);
+        connAddrPeerName(link->conn, buf, NET_IP_STR_LEN, NULL);
     }
 }
 
@@ -2215,7 +2215,7 @@ int clusterProcessPacket(clusterLink *link) {
         {
             char ip[NET_IP_STR_LEN];
 
-            if (connSockName(link->conn,ip,sizeof(ip),NULL) != -1 &&
+            if (connAddrSockName(link->conn,ip,sizeof(ip),NULL) != -1 &&
                 strcmp(ip,myself->ip))
             {
                 memcpy(myself->ip,ip,NET_IP_STR_LEN);

@@ -1196,7 +1196,7 @@ int islocalClient(client *c) {
 
     /* tcp */
     char cip[NET_IP_STR_LEN+1] = { 0 };
-    connPeerToString(c->conn, cip, sizeof(cip)-1, NULL);
+    connAddrPeerName(c->conn, cip, sizeof(cip)-1, NULL);
 
     return !strcmp(cip,"127.0.0.1") || !strcmp(cip,"::1");
 }
@@ -2700,13 +2700,13 @@ done:
  * you want to relax error checking or need to display something anyway (see
  * anetFdToString implementation for more info). */
 void genClientAddrString(client *client, char *addr,
-                         size_t addr_len, int fd_to_str_type) {
+                         size_t addr_len, int remote) {
     if (client->flags & CLIENT_UNIX_SOCKET) {
         /* Unix socket client. */
         snprintf(addr,addr_len,"%s:0",server.unixsocket);
     } else {
         /* TCP client. */
-        connFormatFdAddr(client->conn,addr,addr_len,fd_to_str_type);
+        connFormatAddr(client->conn,addr,addr_len,remote);
     }
 }
 
@@ -2718,7 +2718,7 @@ char *getClientPeerId(client *c) {
     char peerid[NET_ADDR_STR_LEN];
 
     if (c->peerid == NULL) {
-        genClientAddrString(c,peerid,sizeof(peerid),FD_TO_PEER_NAME);
+        genClientAddrString(c,peerid,sizeof(peerid),1);
         c->peerid = sdsnew(peerid);
     }
     return c->peerid;
@@ -2732,7 +2732,7 @@ char *getClientSockname(client *c) {
     char sockname[NET_ADDR_STR_LEN];
 
     if (c->sockname == NULL) {
-        genClientAddrString(c,sockname,sizeof(sockname),FD_TO_SOCK_NAME);
+        genClientAddrString(c,sockname,sizeof(sockname),0);
         c->sockname = sdsnew(sockname);
     }
     return c->sockname;

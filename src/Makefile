@@ -267,22 +267,38 @@ ifeq ($(MALLOC),jemalloc)
 	FINAL_LIBS := ../deps/jemalloc/lib/libjemalloc.a $(FINAL_LIBS)
 endif
 
-ifeq ($(BUILD_TLS),yes)
-	FINAL_CFLAGS+=-DUSE_OPENSSL $(OPENSSL_CFLAGS)
-	FINAL_LDFLAGS+=$(OPENSSL_LDFLAGS)
-	LIBSSL_PKGCONFIG := $(shell $(PKG_CONFIG) --exists libssl && echo $$?)
+# LIBSSL & LIBCRYPTO
+LIBSSL_LIBS=
+LIBSSL_PKGCONFIG := $(shell $(PKG_CONFIG) --exists libssl && echo $$?)
 ifeq ($(LIBSSL_PKGCONFIG),0)
 	LIBSSL_LIBS=$(shell $(PKG_CONFIG) --libs libssl)
 else
 	LIBSSL_LIBS=-lssl
 endif
-	LIBCRYPTO_PKGCONFIG := $(shell $(PKG_CONFIG) --exists libcrypto && echo $$?)
+LIBCRYPTO_LIBS=
+LIBCRYPTO_PKGCONFIG := $(shell $(PKG_CONFIG) --exists libcrypto && echo $$?)
 ifeq ($(LIBCRYPTO_PKGCONFIG),0)
 	LIBCRYPTO_LIBS=$(shell $(PKG_CONFIG) --libs libcrypto)
 else
 	LIBCRYPTO_LIBS=-lcrypto
 endif
+
+BUILD_YES:=1
+BUILD_EXT:=2
+ifeq ($(BUILD_TLS),yes)
+	FINAL_CFLAGS+=-DUSE_OPENSSL=$(BUILD_YES) $(OPENSSL_CFLAGS)
+	FINAL_LDFLAGS+=$(OPENSSL_LDFLAGS)
 	FINAL_LIBS += ../deps/hiredis/libhiredis_ssl.a $(LIBSSL_LIBS) $(LIBCRYPTO_LIBS)
+endif
+
+REDIS_TLS_EXT=
+REDIS_TLS_EXT_NAME:=redis-tls$(PROG_SUFFIX).so
+REDIS_TLS_EXT_CFLAGS:=$(FINAL_CFLAGS)
+ifeq ($(BUILD_TLS),ext)
+	FINAL_CFLAGS+=-DUSE_OPENSSL=$(BUILD_EXT) $(OPENSSL_CFLAGS)
+	FINAL_LIBS += ../deps/hiredis/libhiredis_ssl.a $(LIBSSL_LIBS) $(LIBCRYPTO_LIBS)
+	REDIS_TLS_EXT=$(REDIS_TLS_EXT_NAME)
+	REDIS_TLS_EXT_CFLAGS+=-DUSE_OPENSSL=$(BUILD_YES) $(OPENSSL_CFLAGS) -DBUILD_TLS_EXT
 endif
 
 ifndef V
@@ -325,7 +341,7 @@ REDIS_CHECK_RDB_NAME=redis-check-rdb$(PROG_SUFFIX)
 REDIS_CHECK_AOF_NAME=redis-check-aof$(PROG_SUFFIX)
 ALL_SOURCES=$(sort $(patsubst %.o,%.c,$(REDIS_SERVER_OBJ) $(REDIS_CLI_OBJ) $(REDIS_BENCHMARK_OBJ)))
 
-all: $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_RDB_NAME) $(REDIS_CHECK_AOF_NAME)
+all: $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_RDB_NAME) $(REDIS_CHECK_AOF_NAME) $(REDIS_TLS_EXT)
 	@echo ""
 	@echo "Hint: It's a good idea to run 'make test' ;)"
 	@echo ""
@@ -385,6 +401,10 @@ $(REDIS_CHECK_RDB_NAME): $(REDIS_SERVER_NAME)
 $(REDIS_CHECK_AOF_NAME): $(REDIS_SERVER_NAME)
 	$(REDIS_INSTALL) $(REDIS_SERVER_NAME) $(REDIS_CHECK_AOF_NAME)
 
+# redis-tls.so
+$(REDIS_TLS_EXT_NAME): $(REDIS_SERVER_NAME)
+	$(QUIET_CC)$(CC) -o $@ tls.c -shared -fPIC $(REDIS_TLS_EXT_CFLAGS)
+
 # redis-cli
 $(REDIS_CLI_NAME): $(REDIS_CLI_OBJ)
 	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/linenoise/linenoise.o $(FINAL_LIBS)
@@ -410,7 +430,7 @@ commands.c: commands/*.json ../utils/generate-command-code.py
 endif
 
 clean:
-	rm -rf $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_RDB_NAME) $(REDIS_CHECK_AOF_NAME) *.o *.gcda *.gcno *.gcov redis.info lcov-html Makefile.dep
+	rm -rf $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_RDB_NAME) $(REDIS_CHECK_AOF_NAME) *.o *.gcda *.gcno *.gcov redis.info lcov-html Makefile.dep *.so
 	rm -f $(DEP)
 
 .PHONY: clean

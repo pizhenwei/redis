@@ -27,6 +27,11 @@
 #include "server.h"
 #include "connection.h"
 
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <dlfcn.h>
+
 static ConnectionType *connTypes[CONN_TYPE_MAX];
 
 int connTypeRegister(ConnectionType *ct) {
@@ -57,7 +62,51 @@ int connTypeRegister(ConnectionType *ct) {
     return C_OK;
 }
 
+/* Load a connection type shared library, auto run RedisRegisterConnectionType(),
+ * return connection type name if loading succeed, otherwise exit process (typically
+ * after loading connection type, we need listen to specified address, so this step
+ * is fatal error. */
+static const char *connTypeLoadExtension(char *path, void **argv, int argc) {
+    const char *(*onload_handler)(void **argv, int argc);
+    void *handle;
+    char *onload = "RedisRegisterConnectionType";
+    const char *typename;
+    struct stat st;
+
+    if (stat(path, &st) == 0) {
+        if (!(st.st_mode & (S_IXUSR  | S_IXGRP | S_IXOTH))) {
+            serverLog(LL_WARNING, "Connection extension %s failed to load: It does not have execute permissions.", path);
+            exit(1);
+        }
+    }
+
+    handle = dlopen(path, RTLD_NOW | RTLD_LOCAL);
+    if (handle == NULL) {
+        serverLog(LL_WARNING, "Failed to load connection extension (%s): %s", path, dlerror());
+        exit(1);
+    }
+
+    onload_handler = (const char *(*)(void **, int))(unsigned long)dlsym(handle, onload);
+    if (onload_handler == NULL) {
+        dlclose(handle);
+        serverLog(LL_WARNING, "Failed to lookup symbol %s in %s", onload, path);
+        exit(1);
+    }
+
+    typename = onload_handler(argv, argc);
+    if (typename == NULL) {
+        serverLog(LL_WARNING, "Failed to load %s in %s", onload, path);
+        exit(1);
+    }
+
+    serverLog(LL_NOTICE, "Connection type %s loaded from %s", typename, path);
+    return typename;
+}
+
 int connTypeInitialize() {
+    listIter li;
+    listNode *ln;
+
     /* currently socket connection type is necessary  */
     serverAssert(RedisRegisterConnectionTypeSocket() == C_OK);
 
@@ -66,6 +115,13 @@ int connTypeInitialize() {
 
     /* may fail if without BUILD_TLS=yes */
     RedisRegisterConnectionTypeTLS();
+
+    /* load all connection extensions form server.conn_ext_queue */
+    listRewind(server.conn_ext_queue, &li);
+    while ((ln = listNext(&li))) {
+        struct moduleLoadQueueEntry *entry = ln->value;
+        connTypeLoadExtension(entry->path, (void **)entry->argv, entry->argc);
+    }
 
     return C_OK;
 }

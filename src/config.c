@@ -365,7 +365,7 @@ void resetServerSaveParams(void) {
     server.saveparamslen = 0;
 }
 
-void queueLoadModule(sds path, sds *argv, int argc) {
+void queueLoadModule(sds path, sds *argv, int argc, list *queue) {
     int i;
     struct moduleLoadQueueEntry *loadmod;
 
@@ -376,7 +376,7 @@ void queueLoadModule(sds path, sds *argv, int argc) {
     for (i = 0; i < argc; i++) {
         loadmod->argv[i] = createRawStringObject(argv[i],sdslen(argv[i]));
     }
-    listAddNodeTail(server.loadmodule_queue,loadmod);
+    listAddNodeTail(queue,loadmod);
 }
 
 /* Parse an array of `arg_len` sds strings, validate and populate
@@ -563,7 +563,9 @@ void loadServerConfigFromString(char *config) {
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"loadmodule") && argc >= 2) {
-            queueLoadModule(argv[1],&argv[2],argc-2);
+            queueLoadModule(argv[1],&argv[2],argc-2,server.loadmodule_queue);
+        } else if (!strcasecmp(argv[0],"connection-extension") && argc >= 2) {
+            queueLoadModule(argv[1],&argv[2],argc-2,server.conn_ext_queue);
         } else if (strchr(argv[0], '.')) {
             if (argc < 2) {
                 err = "Module config specified without value";
@@ -1152,6 +1154,7 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
              strcasecmp(argv[0],"rename-command") &&
              strcasecmp(argv[0],"user") &&
              strcasecmp(argv[0],"loadmodule") &&
+             strcasecmp(argv[0],"connection-extension") &&
              strcasecmp(argv[0],"sentinel")))
         {
             /* The line is either unparsable for some reason, for

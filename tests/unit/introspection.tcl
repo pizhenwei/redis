@@ -235,6 +235,7 @@ start_server {tags {"introspection"}} {
 
         if {!$::tls} {
             append skip_configs {
+                connection-extension
                 tls-prefer-server-ciphers
                 tls-session-cache-timeout
                 tls-session-cache-size

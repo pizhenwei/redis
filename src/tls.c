@@ -32,7 +32,7 @@
 #include "connhelpers.h"
 #include "adlist.h"
 
-#ifdef USE_OPENSSL
+#if USE_OPENSSL == 1 /* BUILD_YES */
 
 #include <openssl/conf.h>
 #include <openssl/ssl.h>
@@ -1148,7 +1148,21 @@ int RedisRegisterConnectionTypeTLS()
 
 int RedisRegisterConnectionTypeTLS()
 {
+    serverLog(LL_VERBOSE, "Connection type %s not builtin", CONN_TYPE_TLS);
     return C_ERR;
 }
 
+#endif
+
+#ifdef BUILD_TLS_EXT
+const char *RedisRegisterConnectionType(void **argv, int argc)
+{
+    UNUSED(argv);
+    UNUSED(argc);
+
+    if(connTypeRegister(&CT_TLS) != C_OK)
+        return NULL;
+
+    return CONN_TYPE_TLS;
+}
 #endif

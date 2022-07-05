@@ -239,3 +239,8 @@ int connTypeProcessPendingData(void) {
     return ret;
 }
 
+int connControl(ConnectionType *ct, unsigned long cmd, unsigned long arg0, unsigned long arg1, unsigned long arg2, unsigned arg3) {
+    if (ct->control)
+        return ct->control(cmd, arg0, arg1, arg2, arg3);
+    return C_ERR;
+}

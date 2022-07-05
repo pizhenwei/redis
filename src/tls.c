@@ -1085,12 +1085,29 @@ static sds connTLSGetPeerCert(connection *conn_) {
     return cert_pem;
 }
 
-static void *tlsGetCtx(void) {
-    return redis_tls_ctx;
-}
+static int tlsControl(unsigned long cmd, unsigned long arg0, unsigned long arg1, unsigned long arg2, unsigned arg3) {
+    UNUSED(arg2);
+    UNUSED(arg3);
 
-static void *tlsGetClientCtx(void) {
-    return redis_tls_client_ctx;
+    switch (cmd) {
+    case CTRL_TLS_SET_CONFIG:
+        return tlsConfigure((void *)arg0, (int)arg1);
+
+    case CTRL_TLS_GET_PEER_CERT:
+        *(sds *)arg1 = connTLSGetPeerCert((connection *)arg0);
+        return C_OK;
+
+    case CTRL_TLS_GET_CTX:
+        *(SSL_CTX **)arg0 = redis_tls_ctx;
+        return C_OK;
+
+    case CTRL_TLS_GET_CLIENT_CTX:
+        *(SSL_CTX **)arg0 = redis_tls_client_ctx;
+        return C_OK;
+    }
+
+    serverLog(LL_WARNING, "TLS: Unknown connection control %ld", cmd);
+    return C_ERR;
 }
 
 static ConnectionType CT_TLS = {
@@ -1100,7 +1117,6 @@ static ConnectionType CT_TLS = {
     /* connection type initialize & finalize & configure */
     .init = tlsInit,
     .cleanup = tlsCleanup,
-    .configure = tlsConfigure,
 
     /* ae & accept & listen & error & address handler */
     .ae_handler = tlsEventHandler,
@@ -1134,9 +1150,7 @@ static ConnectionType CT_TLS = {
     .process_pending_data = tlsProcessPendingData,
 
     /* TLS specified methods */
-    .get_peer_cert = connTLSGetPeerCert,
-    .get_ctx = tlsGetCtx,
-    .get_client_ctx = tlsGetClientCtx
+    .control = tlsControl
 };
 
 int RedisRegisterConnectionTypeTLS()

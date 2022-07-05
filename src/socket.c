@@ -373,10 +373,9 @@ static ConnectionType CT_Socket = {
     /* connection type */
     .get_type = connSocketGetType,
 
-    /* connection type initialize & finalize & configure */
+    /* connection type initialize & finalize */
     .init = NULL,
     .cleanup = NULL,
-    .configure = NULL,
 
     /* ae & accept & listen & error & address handler */
     .ae_handler = connSocketEventHandler,

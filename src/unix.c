@@ -151,10 +151,9 @@ static ConnectionType CT_Unix = {
     /* connection type */
     .get_type = connUnixGetType,
 
-    /* connection type initialize & finalize & configure */
+    /* connection type initialize & finalize */
     .init = NULL,
     .cleanup = NULL,
-    .configure = NULL,
 
     /* ae & accept & listen & error & address handler */
     .ae_handler = connUnixEventHandler,

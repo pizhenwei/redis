@@ -2376,8 +2376,14 @@ static int instanceLinkNegotiateTLS(redisAsyncContext *context) {
 #ifndef USE_OPENSSL
     (void) context;
 #else
-    SSL_CTX *redis_tls_ctx = connTypeGetCtx(connectionTypeTls());
-    SSL_CTX *redis_tls_client_ctx = connTypeGetClientCtx(connectionTypeTls());
+    SSL_CTX *redis_tls_ctx;
+    SSL_CTX *redis_tls_client_ctx;
+
+    if (connControl(connectionTypeTls(), CTRL_TLS_GET_CTX, (unsigned long)&redis_tls_ctx, 0, 0,0) != C_OK)
+        return C_ERR;
+
+    if (connControl(connectionTypeTls(), CTRL_TLS_GET_CLIENT_CTX, (unsigned long)&redis_tls_client_ctx, 0, 0,0) != C_OK)
+        return C_ERR;
 
     if (!redis_tls_ctx) return C_ERR;
     SSL *ssl = SSL_new(redis_tls_client_ctx ? redis_tls_client_ctx : redis_tls_ctx);

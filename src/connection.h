@@ -69,10 +69,9 @@ typedef struct ConnectionType {
     /* connection type */
     const char *(*get_type)(struct connection *conn);
 
-    /* connection type initialize & finalize & configure */
+    /* connection type initialize & finalize */
     void (*init)(void); /* auto-call during register */
     void (*cleanup)(void);
-    int (*configure)(void *priv, int reconfigure);
 
     /* ae & accept & listen & error & address handler */
     void (*ae_handler)(struct aeEventLoop *el, int fd, void *clientData, int mask);
@@ -105,10 +104,8 @@ typedef struct ConnectionType {
     int (*has_pending_data)(void);
     int (*process_pending_data)(void);
 
-    /* TLS specified methods */
-    sds (*get_peer_cert)(struct connection *conn);
-    void* (*get_ctx)(void);
-    void* (*get_client_ctx)(void);
+    /* connection type specified methods */
+    int (*control)(unsigned long cmd, unsigned long arg0, unsigned long arg1, unsigned long arg2, unsigned arg3);
 } ConnectionType;
 
 struct connection {
@@ -355,23 +352,18 @@ int connKeepAlive(connection *conn, int interval);
 int connSendTimeout(connection *conn, long long ms);
 int connRecvTimeout(connection *conn, long long ms);
 
-/* Helpers for tls special considerations */
-static inline void *connTypeGetCtx(ConnectionType *ct) {
-    return ct->get_ctx();
-}
+typedef enum {
+    /* TLS: set configure. @arg0: pointer(void *) to config of redisTLSContextConfig; @arg1: reconfigure(bool) to overwrite previous configure. also see tlsConfigure */
+    CTRL_TLS_SET_CONFIG,
+    /* TLS: fetch the peer certificate. @arg0: pointer(connection *) to connection; @arg1: pointer(sds *) to result. see connTLSGetPeerCert */
+    CTRL_TLS_GET_PEER_CERT,
+    /* TLS: fetch ctx. @arg0: pointer(SSL_CTX **) to result. */
+    CTRL_TLS_GET_CTX,
+    /* TLS: fetch client ctx. @arg0: pointer(SSL_CTX **) to result. */
+    CTRL_TLS_GET_CLIENT_CTX,
+} connControlType;
 
-static inline void *connTypeGetClientCtx(ConnectionType *ct) {
-    return ct->get_client_ctx();
-}
-
-/* Get cert for the secure connection */
-static inline sds connGetPeerCert(connection *conn) {
-    if (conn->type->get_peer_cert) {
-        return conn->type->get_peer_cert(conn);
-    }
-
-    return NULL;
-}
+int connControl(ConnectionType *ct, unsigned long cmd, unsigned long arg0, unsigned long arg1, unsigned long arg2, unsigned arg3);
 
 /* Initialize the redis connection framework */
 int connTypeInitialize();
@@ -403,13 +395,6 @@ static inline connection *connCreate(ConnectionType *ct) {
  * @priv is connection type specified argument */
 static inline connection *connCreateAccepted(ConnectionType *ct, int fd, void *priv) {
     return ct->conn_create_accepted(fd, priv);
-}
-
-/* Configure a connection type. A typical case is to configure TLS.
- * @priv is connection type specified,
- * @reconfigure is boolean type to specify if overwrite the original config */
-static inline int connTypeConfigure(ConnectionType *ct, void *priv, int reconfigure) {
-    return ct->configure(priv, reconfigure);
 }
 
 /* Walk all the connection type, and cleanup them all if possible */

@@ -2443,7 +2443,7 @@ void initServer(void) {
     resetReplicationBuffer();
 
     if ((server.tls_port || server.tls_replication || server.tls_cluster)
-         && connTypeConfigure(connectionTypeTls(), &server.tls_ctx_config, 1) == C_ERR) {
+         && connControl(connectionTypeTls(), CTRL_TLS_SET_CONFIG, (unsigned long)&server.tls_ctx_config, 1, 0, 0) == C_ERR) {
         serverLog(LL_WARNING, "Failed to configure TLS. Check logs for more info.");
         exit(1);
     }

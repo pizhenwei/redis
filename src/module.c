@@ -8933,7 +8933,10 @@ RedisModuleString *RM_GetClientCertificate(RedisModuleCtx *ctx, uint64_t client_
     client *c = lookupClientByID(client_id);
     if (c == NULL) return NULL;
 
-    sds cert = connGetPeerCert(c->conn);
+    sds cert;
+    if (connControl(c->conn->type, CTRL_TLS_GET_PEER_CERT, (unsigned long)c->conn, (unsigned long)&cert, 0, 0) != C_OK)
+        return NULL;
+
     if (!cert) return NULL;
 
     RedisModuleString *s = createObject(OBJ_STRING, cert);

@@ -249,8 +249,6 @@ typedef union typeData {
     numericConfigData numeric;
 } typeData;
 
-typedef struct standardConfig standardConfig;
-
 typedef int (*apply_fn)(const char **err);
 typedef struct typeInterface {
     /* Called on server start, to init the server with default value */
@@ -3265,6 +3263,21 @@ void addModuleNumericConfig(const char *module_name, const char *name, int flags
     module_config.data.numeric.config.ll = NULL;
     module_config.privdata = privdata;
     registerConfigValue(config_name, &module_config, 0);
+}
+
+int addStandardSpecialConfig(const char *name, const char *alias, int flags, int (*set)(standardConfig *, sds *, int, const char **), sds (*get)(standardConfig *), int (*apply)(const char **)) {
+    standardConfig special_config = createSpecialConfig(name, alias, flags, set, get, NULL, apply);
+
+    return registerConfigValue(name, &special_config, 0);
+}
+
+int addStandardIntConfig(const char *name, const char *alias, int flags, int lower, int upper, int *addr, int default_val, int (*is_valid)(long long, const char **), int (*apply)(const char **)) {
+    standardConfig int_config = embedCommonNumericalConfig(name, alias, flags, lower, upper, addr, default_val, INTEGER_CONFIG, is_valid, apply)
+        .numeric_type = NUMERIC_TYPE_INT,
+        .config.i = addr
+    } };
+
+    return registerConfigValue(name, &int_config, 0);
 }
 
 /*-----------------------------------------------------------------------------

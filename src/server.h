@@ -3067,6 +3067,9 @@ int getModuleEnumConfig(ModuleConfig *module_config);
 int setModuleEnumConfig(ModuleConfig *config, int val, const char **err);
 long long getModuleNumericConfig(ModuleConfig *module_config);
 int setModuleNumericConfig(ModuleConfig *config, long long val, const char **err);
+typedef struct standardConfig standardConfig;
+int addStandardSpecialConfig(const char *name, const char *alias, int flags, int (*set)(standardConfig *, sds *, int, const char **), sds (*get)(standardConfig *), int (*apply)(const char **));
+int addStandardIntConfig(const char *name, const char *alias, int flags, int lower, int upper, int *addr, int default_val, int (*is_valid)(long long, const char **), int (*apply)(const char **));
 
 /* db.c -- Keyspace access API */
 int removeExpire(redisDb *db, robj *key);

@@ -48,7 +48,6 @@ clusterNode *myself = NULL;
 
 clusterNode *createClusterNode(char *nodename, int flags);
 void clusterAddNode(clusterNode *node);
-void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void clusterReadHandler(connection *conn);
 void clusterSendPing(clusterLink *link, int type);
 void clusterSendFail(char *nodename);
@@ -711,7 +710,7 @@ void clusterInit(void) {
         exit(1);
     }
     
-    if (createSocketAcceptHandler(&server.clistener, clusterAcceptHandler) != C_OK) {
+    if (createSocketAcceptHandler(&server.clistener, listener->ct->accept_handler) != C_OK) {
         serverPanic("Unrecoverable error creating Redis Cluster socket accept handler.");
     }
 
@@ -853,7 +852,7 @@ void setClusterNodeToInboundClusterLink(clusterNode *node, clusterLink *link) {
     link->node = node;
 }
 
-static void clusterConnAcceptHandler(connection *conn) {
+void clusterConnAcceptHandler(connection *conn) {
     clusterLink *link;
 
     if (connGetState(conn) != CONN_STATE_CONNECTED) {
@@ -874,54 +873,6 @@ static void clusterConnAcceptHandler(connection *conn) {
 
     /* Register read handler */
     connSetReadHandler(conn, clusterReadHandler);
-}
-
-#define MAX_CLUSTER_ACCEPTS_PER_CALL 1000
-void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
-    int cport, cfd;
-    int max = MAX_CLUSTER_ACCEPTS_PER_CALL;
-    char cip[NET_IP_STR_LEN];
-    int require_auth = TLS_CLIENT_AUTH_YES;
-    UNUSED(el);
-    UNUSED(mask);
-    UNUSED(privdata);
-
-    /* If the server is starting up, don't accept cluster connections:
-     * UPDATE messages may interact with the database content. */
-    if (server.masterhost == NULL && server.loading) return;
-
-    while(max--) {
-        cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
-        if (cfd == ANET_ERR) {
-            if (errno != EWOULDBLOCK)
-                serverLog(LL_VERBOSE,
-                    "Error accepting cluster node: %s", server.neterr);
-            return;
-        }
-
-        connection *conn = connCreateAccepted(connTypeOfCluster(), cfd, &require_auth);
-
-        if (acceptConnOK(conn, 1) != C_OK) {
-            return;
-        }
-        connEnableTcpNoDelay(conn);
-        connKeepAlive(conn,server.cluster_node_timeout * 2);
-
-        /* Use non-blocking I/O for cluster messages. */
-        serverLog(LL_VERBOSE,"Accepting cluster node connection from %s:%d", cip, cport);
-
-        /* Accept the connection now.  connAccept() may call our handler directly
-         * or schedule it for later depending on connection implementation.
-         */
-        if (connAccept(conn, clusterConnAcceptHandler) == C_ERR) {
-            if (connGetState(conn) == CONN_STATE_ERROR)
-                serverLog(LL_VERBOSE,
-                        "Error accepting cluster node connection: %s",
-                        connGetLastError(conn));
-            connClose(conn);
-            return;
-        }
-    }
 }
 
 /* Return the approximated number of sockets we are using in order to

@@ -407,5 +407,6 @@ void clusterUpdateMyselfIp(void);
 void slotToChannelAdd(sds channel);
 void slotToChannelDel(sds channel);
 void clusterUpdateMyselfHostname(void);
+void clusterConnAcceptHandler(connection *conn);
 
 #endif /* __CLUSTER_H */

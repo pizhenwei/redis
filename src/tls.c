@@ -32,6 +32,7 @@
 #include "server.h"
 #include "connhelpers.h"
 #include "adlist.h"
+#include "cluster.h"
 
 #if (USE_OPENSSL == 1 /* BUILD_YES */ ) || ((USE_OPENSSL == 2 /* BUILD_MODULE */) && (BUILD_TLS_MODULE == 2))
 
@@ -59,6 +60,8 @@
 
 SSL_CTX *redis_tls_ctx = NULL;
 SSL_CTX *redis_tls_client_ctx = NULL;
+
+static int connTLSAccept(connection *_conn, ConnectionCallbackFunc accept_handler);
 
 static int parseProtocolsConfig(const char *str) {
     int i, count = 0;
@@ -723,20 +726,48 @@ static void tlsEventHandler(struct aeEventLoop *el, int fd, void *clientData, in
 static void tlsAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     int cport, cfd, max = MAX_ACCEPTS_PER_CALL;
     char cip[NET_IP_STR_LEN];
+    int is_cluster = (privdata == (void *)&server.clistener);
+    int tcp_keepalive = server.tcpkeepalive;
     UNUSED(el);
     UNUSED(mask);
-    UNUSED(privdata);
+
+    /* If the server is starting up, don't accept cluster connections:
+     * UPDATE messages may interact with the database content. */
+    if (is_cluster) {
+        if (server.masterhost == NULL && server.loading)
+            return;
+        tcp_keepalive = server.cluster_node_timeout * 2;
+    }
 
     while(max--) {
         cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
         if (cfd == ANET_ERR) {
             if (errno != EWOULDBLOCK)
-                serverLog(LL_WARNING,
-                    "Accepting client connection: %s", server.neterr);
+                serverLog(LL_WARNING, "Error accepting %s: %s",
+                is_cluster ? "cluster node": "client connection", server.neterr);
             return;
         }
-        serverLog(LL_VERBOSE,"Accepted %s:%d", cip, cport);
-        acceptCommonHandler(connCreateAcceptedTLS(cfd, &server.tls_auth_clients),0,cip);
+        serverLog(LL_VERBOSE,"Accepted %s %s:%d",
+                  is_cluster ? "cluster node": "client connection", cip, cport);
+
+        connection *conn = connCreateAcceptedTLS(cfd, &server.tls_auth_clients);
+        if (acceptConnOK(conn, is_cluster) != C_OK)
+            return;
+
+        connEnableTcpNoDelay(conn);
+        if (tcp_keepalive)
+            connKeepAlive(conn, tcp_keepalive);
+
+        if (is_cluster) {
+            if (connTLSAccept(conn, clusterConnAcceptHandler) == C_ERR) {
+                if (connGetState(conn) == CONN_STATE_ERROR)
+                    serverLog(LL_VERBOSE,
+                            "Error accepting cluster node connection: %s",
+                            connGetLastError(conn));
+                connClose(conn);
+            }
+        } else
+            acceptCommonHandler(conn,0,cip);
     }
 }
 

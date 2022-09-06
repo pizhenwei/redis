@@ -99,7 +99,10 @@ static void connUnixAcceptHandler(aeEventLoop *el, int fd, void *privdata, int m
             return;
         }
         serverLog(LL_VERBOSE,"Accepted connection to %s", server.unixsocket);
-        acceptCommonHandler(connCreateAcceptedUnix(cfd, NULL),CLIENT_UNIX_SOCKET,NULL);
+        connection *conn = connCreateAcceptedUnix(cfd, NULL);
+        if (acceptConnOK(conn, 0) != C_OK)
+            return;
+        acceptCommonHandler(conn,CLIENT_UNIX_SOCKET,NULL);
     }
 }
 

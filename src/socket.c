@@ -29,6 +29,7 @@
 
 #include "server.h"
 #include "connhelpers.h"
+#include "cluster.h"
 
 /* The connections module provides a lean abstraction of network connections
  * to avoid direct socket and async event management across the Redis code base.
@@ -304,20 +305,48 @@ static void connSocketEventHandler(struct aeEventLoop *el, int fd, void *clientD
 static void connSocketAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     int cport, cfd, max = MAX_ACCEPTS_PER_CALL;
     char cip[NET_IP_STR_LEN];
+    int is_cluster = (privdata == (void *)&server.clistener);
+    int tcp_keepalive = server.tcpkeepalive;
     UNUSED(el);
     UNUSED(mask);
-    UNUSED(privdata);
+
+    /* If the server is starting up, don't accept cluster connections:
+     * UPDATE messages may interact with the database content. */
+    if (is_cluster) {
+        if (server.masterhost == NULL && server.loading)
+            return;
+        tcp_keepalive = server.cluster_node_timeout * 2;
+    }
 
     while(max--) {
         cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
         if (cfd == ANET_ERR) {
             if (errno != EWOULDBLOCK)
-                serverLog(LL_WARNING,
-                    "Accepting client connection: %s", server.neterr);
+                serverLog(LL_WARNING, "Error accepting %s: %s",
+                is_cluster ? "cluster node": "client connection", server.neterr);
             return;
         }
-        serverLog(LL_VERBOSE,"Accepted %s:%d", cip, cport);
-        acceptCommonHandler(connCreateAcceptedSocket(cfd, NULL),0,cip);
+        serverLog(LL_VERBOSE,"Accepted %s %s:%d",
+                  is_cluster ? "cluster node": "client connection", cip, cport);
+
+        connection *conn = connCreateAcceptedSocket(cfd, NULL);
+        if (acceptConnOK(conn, is_cluster) != C_OK)
+            return;
+
+        connEnableTcpNoDelay(conn);
+        if (tcp_keepalive)
+            connKeepAlive(conn, tcp_keepalive);
+
+        if (is_cluster) {
+            if (connSocketAccept(conn, clusterConnAcceptHandler) == C_ERR) {
+                if (connGetState(conn) == CONN_STATE_ERROR)
+                    serverLog(LL_VERBOSE,
+                            "Error accepting cluster node connection: %s",
+                            connGetLastError(conn));
+                connClose(conn);
+            }
+        } else
+            acceptCommonHandler(conn,0,cip);
     }
 }
 

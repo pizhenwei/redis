@@ -167,7 +167,6 @@ static ConnectionType CT_Unix = {
 
     /* create/close connection */
     .conn_create = connCreateUnix,
-    .conn_create_accepted = connCreateAcceptedUnix,
     .close = connUnixClose,
 
     /* connect & accept */

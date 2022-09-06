@@ -1136,7 +1136,6 @@ static ConnectionType CT_TLS = {
 
     /* create/close connection */
     .conn_create = connCreateTLS,
-    .conn_create_accepted = connCreateAcceptedTLS,
     .close = connTLSClose,
 
     /* connect & accept */

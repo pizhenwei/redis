@@ -419,7 +419,6 @@ static ConnectionType CT_Socket = {
 
     /* create/close connection */
     .conn_create = connCreateSocket,
-    .conn_create_accepted = connCreateAcceptedSocket,
     .close = connSocketClose,
 
     /* connect & accept */
